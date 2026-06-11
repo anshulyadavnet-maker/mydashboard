@@ -1,0 +1,13 @@
+name = "milk-hissab"
+compatibility_date = "2025-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+# For production: replace with your D1 database_id from "wrangler d1 create"
+[[d1_databases]]
+binding = "DB"
+database_name = "milk-hissab-db"
+database_id = "df8a12dd-6c04-4a79-8444-34756ccf077f"
+
+# Dev JWT secret (override in production with: npx wrangler secret put JWT_SECRET)
+[vars]
+JWT_SECRET = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.KMUFsIDTnFmyG3nMiGM6H9FNFUROf3wh7SmqJp-QV30"

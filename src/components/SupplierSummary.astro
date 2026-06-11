@@ -1,0 +1,53 @@
+---
+export interface Props {
+  groupedTotals: Record<number, {
+    name: string;
+    payable: number;
+    paid: number;
+    dueExtra: number;
+    categories: string[];
+  }>;
+}
+const { groupedTotals } = Astro.props;
+---
+<div class="glass-card mt-4 mb-4">
+  <div class="p-3" style="border-bottom:1px solid var(--border-color);">
+    <h6 style="font-weight:700;margin:0;">📊 Supplier Summary</h6>
+  </div>
+  <div class="table-wrapper" style="max-height:none;">
+    <table style="font-size:0.85rem;">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding-left:1rem;">Supplier Name</th>
+          <th>Accounts</th>
+          <th style="text-align:right;">Total Payable</th>
+          <th style="text-align:right;">Total Paid</th>
+          <th style="text-align:right;padding-right:1rem;">Total Due/Extra</th>
+        </tr>
+      </thead>
+      <tbody>
+        {Object.entries(groupedTotals).map(([sid, g]) => (
+          <tr>
+            <td style="padding-left:1rem;font-weight:600;">{g.name}</td>
+            <td class="text-center">
+              <span class="badge-sm" style="background:var(--bg-base);opacity:0.8;">
+                {g.categories.join(', ')}
+              </span>
+            </td>
+            <td class="text-end val-payable">₹{g.payable.toFixed(2)}</td>
+            <td class="text-end val-paid">₹{g.paid.toFixed(2)}</td>
+            <td class="text-end fw-bold" style={`padding-right:1rem;color:${
+              g.dueExtra < 0 ? '#e0556a' : g.dueExtra > 0 ? '#00b894' : 'var(--text-muted)'
+            };`}>
+              {g.dueExtra < 0
+                ? `Due: ₹${Math.abs(g.dueExtra).toFixed(2)}`
+                : g.dueExtra > 0
+                  ? `Extra: ₹${g.dueExtra.toFixed(2)}`
+                  : 'Settled ✓'}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</div>

@@ -1,0 +1,71 @@
+---
+import Layout from '../components/Layout.astro';
+---
+<Layout title="Register - Milk Hissab">
+  <div class="login-page">
+    <div class="glass-card login-card">
+      <h1><span class="login-icon">🥛</span> Milk Hissab</h1>
+      <p class="text-muted text-sm mb-4">Create your free account</p>
+      <form id="registerForm" class="text-start">
+        <div class="mb-3">
+          <label class="form-label" for="name">Name (optional)</label>
+          <input type="text" id="name" name="name" class="form-control" placeholder="Your name">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="email">Email</label>
+          <input type="email" id="email" name="email" class="form-control" placeholder="you@example.com" required autofocus>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="password">Password</label>
+          <input type="password" id="password" name="password" class="form-control" placeholder="Min 6 characters" required minlength="6">
+        </div>
+        <button type="submit" class="btn btn-primary w-100" id="registerBtn">Create Account</button>
+        <div id="registerAlert" class="alert alert-danger" style="display:none;"></div>
+        <div id="registerSuccess" class="alert alert-success" style="display:none;"></div>
+      </form>
+      <p class="text-muted text-sm mt-3">
+        Already have an account?
+        <a href="/login" style="color: var(--accent-primary); text-decoration: none; font-weight: 600;">Sign in</a>
+      </p>
+    </div>
+  </div>
+</Layout>
+<script>
+  const form = document.getElementById('registerForm') as HTMLFormElement;
+  const alertBox = document.getElementById('registerAlert') as HTMLDivElement;
+  const successBox = document.getElementById('registerSuccess') as HTMLDivElement;
+  const btn = document.getElementById('registerBtn') as HTMLButtonElement;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    alertBox.style.display = 'none';
+    successBox.style.display = 'none';
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Creating...';
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: (document.getElementById('name') as HTMLInputElement).value,
+          email: (document.getElementById('email') as HTMLInputElement).value,
+          password: (document.getElementById('password') as HTMLInputElement).value,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        successBox.textContent = 'Account created! Redirecting to dashboard...';
+        successBox.style.display = 'block';
+        setTimeout(() => { window.location.href = '/'; }, 1000);
+      } else {
+        alertBox.textContent = data.message || 'Registration failed.';
+        alertBox.style.display = 'block';
+      }
+    } catch {
+      alertBox.textContent = 'Network error. Please try again.';
+      alertBox.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = 'Create Account';
+    }
+  });
+</script>

@@ -1,0 +1,289 @@
+---
+import Layout from '../components/Layout.astro';
+import { getDB, getExpenses } from '../lib/db';
+import { getLocalDateString } from '../lib/milk';
+
+const user = Astro.locals.user!;
+if (!user) return Astro.redirect('/login');
+
+const db = getDB(Astro);
+const url = new URL(Astro.request.url);
+let month = parseInt(url.searchParams.get('m') || '');
+let year = parseInt(url.searchParams.get('y') || '');
+
+const now = new Date();
+if (!month || month < 1 || month > 12) month = now.getMonth() + 1;
+if (!year) year = now.getFullYear();
+
+const expenses = await getExpenses(db, user.userId, year, month);
+
+// Group expenses by date
+const groupedExpenses: Record<string, any[]> = {};
+expenses.forEach((exp: any) => {
+  if (!groupedExpenses[exp.expense_date]) {
+    groupedExpenses[exp.expense_date] = [];
+  }
+  groupedExpenses[exp.expense_date].push(exp);
+});
+
+const sortedDates = Object.keys(groupedExpenses).sort((a, b) => b.localeCompare(a));
+
+const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const monthName = monthNames[month - 1];
+
+const totalMonthExpense = expenses.reduce((sum: number, exp: any) => sum + Number(exp.amount), 0);
+---
+<Layout title={`Expenses - ${monthName} ${year}`}>
+  <div class="container animate-fade-in pb-4">
+    <div class="flex-between mb-4 flex-wrap gap-4">
+      <div>
+        <h1 class="h2 mb-1">💸 Expenses</h1>
+        <p class="text-muted text-sm">Track your daily and monthly spending.</p>
+      </div>
+      <button class="btn btn-primary" id="addExpenseBtn">+ Add Expense</button>
+    </div>
+
+    <!-- Filters -->
+    <div class="glass-card mb-4 p-3">
+      <div class="flex-between flex-wrap gap-3">
+        <div class="flex gap-2" style="align-items:center;">
+          <strong class="text-muted text-xs" style="text-transform:uppercase;">📅 Period:</strong>
+          <form method="GET" class="flex gap-2">
+            <select name="m" class="form-select" style="width:auto;" onchange="this.form.submit()">
+              {monthNames.map((name, i) => (
+                <option value={i + 1} selected={i + 1 === month}>{name}</option>
+              ))}
+            </select>
+            <select name="y" class="form-select" style="width:auto;" onchange="this.form.submit()">
+              {Array.from({ length: (now.getFullYear() + 1) - 2020 + 1 }, (_, i) => now.getFullYear() + 1 - i).map(y => (
+                <option value={y} selected={y === year}>{y}</option>
+              ))}
+            </select>
+          </form>
+        </div>
+        <div class="flex gap-2 flex-1" style="min-width:200px;">
+          <input type="text" id="expenseSearch" class="form-control" placeholder="Search by category or note...">
+        </div>
+        <div class="text-lg fw-bold text-accent">
+          Total: ₹{totalMonthExpense.toFixed(2)}
+        </div>
+      </div>
+    </div>
+
+    <div id="expenseList">
+      {sortedDates.length === 0 ? (
+        <div class="glass-card p-8 text-center">
+          <h5 class="text-muted">No expenses recorded for this month.</h5>
+        </div>
+      ) : (
+        sortedDates.map(date => (
+          <div class="expense-day-group mb-4">
+            <div class="text-xs fw-bold text-muted mb-2 px-1 uppercase" style="letter-spacing:0.05em;">
+              {new Date(date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </div>
+            <div class="glass-card overflow-hidden">
+              <table class="w-100">
+                <tbody>
+                  {groupedExpenses[date].map(exp => (
+                    <tr class="expense-row" data-exp={JSON.stringify(exp)}>
+                      <td style={`width: 4px; background: ${exp.color || '#00876c'}; padding:0;`}></td>
+                      <td class="p-3">
+                        <div class="fw-bold">{exp.category}</div>
+                        {exp.note && <div class="text-xs text-muted">{exp.note}</div>}
+                      </td>
+                      <td class="p-3 text-end fw-bold" style="font-size:1.1rem;">
+                        ₹{Number(exp.amount).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  </div>
+
+  <!-- Add/Edit Modal -->
+  <div class="modal-overlay" id="expenseModal" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="expModalTitle">Add Expense</h5>
+        <button class="modal-close" onclick="document.getElementById('expenseModal').style.display='none'">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="expForm">
+          <input type="hidden" name="action" id="expAction" value="create">
+          <input type="hidden" name="id" id="expId" value="">
+          
+          <div class="row mb-3">
+            <div class="col-6">
+              <label class="form-label">Amount (₹) *</label>
+              <input type="number" step="0.01" class="form-control" name="amount" id="expAmount" required placeholder="0.00">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Category *</label>
+              <input type="text" class="form-control" name="category" id="expCategory" list="categoryList" required placeholder="e.g. Food">
+              <datalist id="categoryList">
+                <option value="Food">
+                <option value="Transport">
+                <option value="Rent">
+                <option value="Shopping">
+                <option value="Health">
+                <option value="Utilities">
+              </datalist>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Note / Description</label>
+            <input type="text" class="form-control" name="note" id="expNote" placeholder="What was this for?">
+          </div>
+
+          <div class="row mb-4">
+            <div class="col-6">
+              <label class="form-label">Date *</label>
+              <input type="date" class="form-control" name="date" id="expDate" value={getLocalDateString()} required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Color Theme</label>
+              <div class="color-picker-grid">
+                {['#ffffff', '#ff8a80', '#ffd180', '#ffff8d', '#ccff90', '#a7ffeb', '#80d8ff', '#cfd8dc'].map(c => (
+                  <label class="color-option">
+                    <input type="radio" name="color" value={c} checked={c === '#ffffff'}>
+                    <span class="color-circle" style={`background:${c}`}></span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div class="flex gap-2">
+            <button type="submit" class="btn btn-primary" style="flex:1;">Save Expense</button>
+            <button type="button" class="btn btn-danger btn-sm" id="expDelBtn" style="display:none;">🗑️</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  const modal = document.getElementById('expenseModal');
+  const form = document.getElementById('expForm') as HTMLFormElement;
+  const addBtn = document.getElementById('addExpenseBtn');
+
+  function showModal() { modal!.style.display = 'flex'; }
+  function hideModal() { modal!.style.display = 'none'; }
+
+  addBtn?.addEventListener('click', () => {
+    form.reset();
+    document.getElementById('expModalTitle')!.textContent = 'Add Expense';
+    (document.getElementById('expAction') as HTMLInputElement).value = 'create';
+    (document.getElementById('expId') as HTMLInputElement).value = '';
+    document.getElementById('expDelBtn')!.style.display = 'none';
+    showModal();
+  });
+
+  document.querySelectorAll('.expense-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const exp = JSON.parse(row.getAttribute('data-exp')!);
+      document.getElementById('expModalTitle')!.textContent = 'Edit Expense';
+      (document.getElementById('expAction') as HTMLInputElement).value = 'update';
+      (document.getElementById('expId') as HTMLInputElement).value = exp.id;
+      (document.getElementById('expAmount') as HTMLInputElement).value = exp.amount;
+      (document.getElementById('expCategory') as HTMLInputElement).value = exp.category;
+      (document.getElementById('expNote') as HTMLInputElement).value = exp.note || '';
+      (document.getElementById('expDate') as HTMLInputElement).value = exp.expense_date;
+      
+      const radio = form.querySelector(`input[name="color"][value="${exp.color || '#ffffff'}"]`) as HTMLInputElement;
+      if (radio) radio.checked = true;
+
+      document.getElementById('expDelBtn')!.style.display = 'block';
+      showModal();
+    });
+  });
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData.entries());
+    
+    const res = await fetch('/api/expenses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    
+    if (res.ok) window.location.reload();
+  });
+
+  document.getElementById('expDelBtn')?.addEventListener('click', async () => {
+    if (!confirm('Delete this expense?')) return;
+    const id = (document.getElementById('expId') as HTMLInputElement).value;
+    const res = await fetch('/api/expenses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', id })
+    });
+    if (res.ok) window.location.reload();
+  });
+
+  modal?.addEventListener('click', (e) => {
+    if (e.target === modal) hideModal();
+  });
+
+  // Filtering Logic
+  const searchInput = document.getElementById('expenseSearch') as HTMLInputElement;
+  searchInput?.addEventListener('input', () => {
+    const query = searchInput.value.toLowerCase();
+    
+    document.querySelectorAll('.expense-day-group').forEach(group => {
+      let groupHasVisible = false;
+      group.querySelectorAll('.expense-row').forEach(row => {
+        const exp = JSON.parse(row.getAttribute('data-exp')!);
+        const matches = (exp.category?.toLowerCase() || '').includes(query) || 
+                        (exp.note?.toLowerCase() || '').includes(query);
+        (row as HTMLElement).style.display = matches ? 'table-row' : 'none';
+        if (matches) groupHasVisible = true;
+      });
+      (group as HTMLElement).style.display = groupHasVisible ? 'block' : 'none';
+    });
+  });
+</script>
+
+<style>
+  .expense-row {
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .expense-row:hover {
+    background: rgba(255,255,255,0.03);
+  }
+  .color-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 0.5rem;
+  }
+  .color-option {
+    cursor: pointer;
+    position: relative;
+  }
+  .color-option input {
+    position: absolute;
+    opacity: 0;
+  }
+  .color-circle {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    transition: all 0.2s;
+  }
+  .color-option input:checked + .color-circle {
+    border-color: var(--accent-primary);
+    transform: scale(1.1);
+  }
+</style>

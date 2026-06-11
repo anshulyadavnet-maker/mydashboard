@@ -1,0 +1,39 @@
+---
+export interface Props {
+  pending: any[];
+}
+const { pending } = Astro.props;
+---
+<div class="modal-overlay" id="autofillModal" style="display:none;">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title" style="color:var(--accent-primary);">
+        ⚡ Missing Entries Detected!
+      </h5>
+    </div>
+    <div class="modal-body">
+      <p class="text-muted text-sm">The following accounts have missing auto-generation entries for the selected period:</p>
+      <div id="autofillList" class="mb-4">
+        {pending.map((af: any) => (
+          <div class="glass-card p-2 mb-2" style="border:1px solid rgba(0, 135, 108, 0.2);">
+            <div class="flex-between">
+              <div>
+                <div class="fw-bold">{af.supplier_name} ({af.category_name})</div>
+                <div class="text-muted text-xs">{af.range} ({af.count} days)</div>
+              </div>
+              <div style="color:var(--accent-primary);font-weight:700;">{af.qty} kg/day</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div class="flex gap-2" style="flex-direction:column;">
+        <button type="button" class="btn btn-primary" id="confirmAutofillBtn">
+          ✅ Yes, Auto-fill entries
+        </button>
+        <button type="button" class="btn" style="background:none;border:none;color:var(--text-muted);" onclick="document.getElementById('autofillModal').style.display='none'">
+          No, I will fill them manually
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,43 @@
+---
+export interface Props {
+  payments: any[];
+}
+const { payments } = Astro.props;
+---
+<div class="glass-card mt-4 mb-4">
+  <div class="p-3" style="border-bottom:1px solid var(--border-color);">
+    <h6 style="font-weight:700;margin:0;">💳 Payment Transactions</h6>
+  </div>
+  <div class="table-wrapper" style="max-height:none;">
+    <table style="font-size:0.85rem;">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding-left:1rem;">Date</th>
+          <th style="text-align:left;">Supplier &amp; Account</th>
+          <th style="text-align:right;">Amount</th>
+          <th style="text-align:left;padding-left:1rem;">Note</th>
+          <th style="text-align:right;padding-right:1rem;">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {payments.map((pay: any) => (
+          <tr>
+            <td style="padding-left:1rem;white-space:nowrap;">
+              {new Date(pay.payment_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </td>
+            <td>
+              <span class="fw-bold">{pay.milksupplier_name}</span>
+              <span class="badge-sm" style="background:var(--bg-base);opacity:0.8;margin-left:4px;">{pay.category_name}</span>
+            </td>
+            <td class="text-end val-paid">₹{Number(pay.amount).toFixed(2)}</td>
+            <td class="text-muted text-xs" style="padding-left:1rem;">{pay.note || '\u2014'}</td>
+            <td class="text-end" style="padding-right:1rem;white-space:nowrap;">
+              <button class="btn btn-sm edit-pay-btn" data-pay={JSON.stringify(pay)} title="Edit Payment" style="background:none;border:none;color:var(--accent-primary);cursor:pointer;">✏️</button>
+              <button class="btn btn-sm del-pay-btn" data-id={pay.id} title="Delete Payment" style="background:none;border:none;color:var(--accent-danger);cursor:pointer;">🗑️</button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</div>

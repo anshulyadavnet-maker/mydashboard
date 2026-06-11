@@ -1,0 +1,565 @@
+---
+import Layout from '../components/Layout.astro';
+import Header from '../components/Header.astro';
+import SupplierSummary from '../components/SupplierSummary.astro';
+import PaymentHistory from '../components/PaymentHistory.astro';
+import AddAccountModal from '../components/AddAccountModal.astro';
+import EditQuantityModal from '../components/EditQuantityModal.astro';
+import PaymentModal from '../components/PaymentModal.astro';
+import AutofillModal from '../components/AutofillModal.astro';
+import { getDB } from '../lib/db';
+import {
+  getAccounts, getSuppliers, getCategories, getEntriesForAccount,
+  getPaymentsForAccount, getPaymentHistory, checkAccountExists,
+  createAccount,
+} from '../lib/db';
+import {
+  daysInMonth, previousMonth, buildMatrixRow, detectMissingAutofills,
+  getCarryForwardData,
+} from '../lib/milk';
+
+const user = Astro.locals.user;
+let month, year, totalDays, monthName, accounts, suppliersList, categoriesList, paymentHistoryList;
+let matrix = {};
+let pendingAutofills = [];
+let groupedTotals = {};
+
+if (user) {
+  const db = getDB(Astro);
+
+  const url = new URL(Astro.request.url);
+  month = parseInt(url.searchParams.get('m') || '');
+  year = parseInt(url.searchParams.get('y') || '');
+
+  const now = new Date();
+  if (!month || month < 1 || month > 12) month = now.getMonth() + 1;
+  if (!year) year = now.getFullYear();
+
+  totalDays = daysInMonth(year, month);
+  const monthNamesList = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  monthName = monthNamesList[month - 1];
+
+  // Carry forward active accounts from previous month
+  const { year: prevYear, month: prevMonth } = previousMonth(year, month);
+  const prevAccountRows = await db.prepare(
+    'SELECT * FROM milk_accounts WHERE user_id = ? AND active = 1 AND year = ? AND month = ?'
+  ).bind(user.userId, prevYear, prevMonth).all();
+  const carryForwardData = getCarryForwardData(prevAccountRows.results, year, month);
+  for (const cf of carryForwardData) {
+    const exists = await checkAccountExists(db, user.userId, cf.supplierId, cf.categoryId, cf.autogenTime, year, month);
+    if (!exists) {
+      await createAccount(db, cf);
+    }
+  }
+
+  // Fetch current month data
+  accounts = await getAccounts(db, user.userId, year, month);
+  suppliersList = await getSuppliers(db, user.userId);
+  categoriesList = await getCategories(db, user.userId);
+  paymentHistoryList = await getPaymentHistory(db, user.userId, year, month);
+
+  // Build matrix
+  for (const acc of accounts) {
+    const dbEntries = await getEntriesForAccount(db, acc.id, year, month);
+    const totalPayments = Number(await getPaymentsForAccount(db, acc.id)) || 0;
+    const row = buildMatrixRow(acc, dbEntries, totalDays, totalPayments);
+    matrix[acc.id] = row;
+    const { pending } = detectMissingAutofills(acc, dbEntries, year, month, totalDays);
+    if (pending) pendingAutofills.push(pending);
+  }
+
+  // Group by supplier for summary
+  for (const [aid, row] of Object.entries(matrix)) {
+    const sid = (row as any).account.milksupplier_id;
+    if (!groupedTotals[sid]) {
+      groupedTotals[sid] = {
+        name: (row as any).account.milksupplier_name,
+        payable: 0, paid: 0, dueExtra: 0,
+        categories: [],
+      };
+    }
+    groupedTotals[sid].payable += (row as any).payable;
+    groupedTotals[sid].paid += (row as any).paid;
+    groupedTotals[sid].dueExtra += (row as any).net;
+    if (!groupedTotals[sid].categories.includes((row as any).account.category_name)) {
+      groupedTotals[sid].categories.push((row as any).account.category_name);
+    }
+  }
+}
+
+const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const daysArray = Array.from({ length: 31 }, (_, i) => i + 1);
+---
+{user ? (
+<Layout title={`${monthName} ${year} - Milk Hissab`}>
+  <style is:global>
+    .supplier-name:hover {
+      color: var(--accent-secondary);
+      text-decoration: underline;
+    }
+  </style>
+  <div class="container animate-fade-in pb-4">
+    <Header month={month} year={year} monthName={monthName} />
+
+    <!-- Filters -->
+    <div class="glass-card mb-4 p-3">
+      <div class="flex-between flex-wrap gap-3">
+        <div class="flex gap-2" style="align-items:center;">
+          <strong class="text-muted text-xs" style="text-transform:uppercase;letter-spacing:0.04em;">📅 Period:</strong>
+          <form method="GET" class="flex gap-2" id="filterForm">
+            <select name="m" class="form-select" style="width:auto;" onchange="this.form.submit()">
+              {monthNames.map((name, i) => (
+                <option value={i + 1} selected={i + 1 === month}>{name}</option>
+              ))}
+            </select>
+            <select name="y" class="form-select" style="width:auto;" onchange="this.form.submit()">
+              {Array.from({ length: (new Date().getFullYear() + 1) - 2020 + 1 }, (_, i) => new Date().getFullYear() + 1 - i).map(y => (
+                <option value={y} selected={y === year}>{y}</option>
+              ))}
+            </select>
+          </form>
+        </div>
+        <div class="flex gap-3 text-xs">
+          <span class="badge" style="background:rgba(0,212,170,0.15);color:var(--accent-secondary);">
+            <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent-secondary);margin-right:4px;"></span>
+            Auto
+          </span>
+          <span class="badge" style="background:rgba(240,160,64,0.15);color:var(--accent-warning);">
+            <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent-warning);margin-right:4px;"></span>
+            Manual
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Grand Matrix -->
+    <div class="glass-card" style="overflow:hidden;">
+      <div class="table-wrapper">
+        <table class="main-matrix">
+          <thead>
+            <tr>
+              <th class="sticky-col" style="text-align:left;padding-left:1rem;min-width:210px;">Supplier Details</th>
+              {daysArray.map(d => (
+                <th class={d <= totalDays ? '' : 'text-muted'} style={d > totalDays ? 'opacity:0.3;background:rgba(0,0,0,0.05);' : ''}>
+                  {d}
+                </th>
+              ))}
+              <th style="min-width:70px;">Total</th>
+              <th style="min-width:90px;color:#e0556a;">Payable</th>
+              <th style="min-width:90px;color:#00b894;">Paid</th>
+              <th style="min-width:100px;">Due/Extra</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Object.keys(matrix).length === 0 && (
+              <tr><td colspan="36" class="empty-state">No suppliers added for this month. Click "Add Supplier" to get started!</td></tr>
+            )}
+            {Object.entries(matrix).map(([aid, row]) => {
+              const acc = (row as any).account;
+              const entries = (row as any).entries;
+              return (
+                <tr>
+                  <td class="sticky-col supplier-edit-trigger" style="padding:0.6rem 0.75rem; cursor:pointer;" data-acc-id={acc.id}>
+                    <div class="fw-bold truncate supplier-name" style="max-width:180px;" title="Edit Configuration">
+                      <span style="font-size:0.8rem; margin-right:4px;">✏️</span>
+                      {acc.milksupplier_name}
+                      {!acc.active ? <span class="badge-sm" style="background:rgba(224,85,106,0.2);color:#e0556a;margin-left:4px;">Inactive</span> : ''}
+                    </div>
+                    <div class="text-muted text-xs flex gap-1" style="align-items:center;margin-top:2px;">
+                      <span class="badge-sm" style="background:var(--bg-base);opacity:0.8;">{acc.category_name}</span>
+                      <span>₹{Number(acc.rate).toFixed(2)}/kg</span>
+                      {acc.autogen_daily ? (
+                        <span>🕐 {acc.autogen_time} ({Number(acc.autogen_quantity)}kg)</span>
+                      ) : ''}
+                    </div>
+                  </td>
+                  {daysArray.map(d => {
+                    if (d > totalDays) {
+                      return <td style="background:rgba(0,0,0,0.04);"></td>;
+                    }
+                    const cell = entries[d];
+                    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                    const isAuto = cell.type === 'auto';
+                    const isManual = cell.type === 'manual';
+                    const cellColor = cell.q > 0 ? 'var(--text-primary)' : 'var(--text-muted)';
+                    return (
+                      <td class="day-cell" data-aid={aid} data-d={d} data-date={dateStr}>
+                        <div class="day-cell-value" style={`color: ${cellColor}`}>
+                          {cell.q > 0 ? cell.q : '-'}
+                        </div>
+                        {cell.q > 0 && isAuto && <div class="day-dot auto"></div>}
+                        {cell.q > 0 && isManual && <div class="day-dot manual"></div>}
+                      </td>
+                    );
+                  })}
+                  <td class="text-center fw-bold">{(row as any).totalQty}</td>
+                  <td class="text-center val-payable">₹{(row as any).payable.toFixed(2)}</td>
+                  <td class="text-center val-paid day-cell" data-aid={aid} style="background:rgba(0,180,148,0.05);">
+                    + {(row as any).paid > 0 ? `₹${(row as any).paid.toFixed(2)}` : '0'}
+                  </td>
+                  <td class="text-center fw-bold" style={(row as any).net < 0
+                    ? 'background:rgba(224,85,106,0.08);'
+                    : (row as any).net > 0 ? 'background:rgba(0,180,148,0.08);' : ''}>
+                    {(row as any).net < 0
+                      ? <span class="val-due">Due: ₹{Math.abs((row as any).net).toFixed(2)}</span>
+                      : (row as any).net > 0
+                        ? <span class="val-extra">Extra: ₹{(row as any).net.toFixed(2)}</span>
+                        : <span class="val-settled">Settled ✓</span>
+                    }
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {Object.keys(groupedTotals).length > 0 && (
+      <SupplierSummary groupedTotals={groupedTotals} />
+    )}
+
+    {paymentHistoryList && paymentHistoryList.length > 0 && (
+      <PaymentHistory payments={paymentHistoryList} />
+    )}
+  </div>
+
+  <AddAccountModal suppliers={suppliersList} categories={categoriesList} month={month} year={year} />
+  <EditQuantityModal />
+  <PaymentModal />
+  {pendingAutofills.length > 0 && <AutofillModal pending={pendingAutofills} />}
+
+</Layout>
+) : (
+<Layout title="Milk Hissab - Best Daily Milk Delivery & Expense Tracker">
+  <div class="landing-page animate-fade-in">
+    <!-- Hero Section -->
+    <section class="hero-section py-20 text-center">
+      <div class="container">
+        <div class="badge mb-6" style="background:var(--accent-primary); color:white; padding: 0.6rem 1.2rem; border-radius: 50px; font-weight: 600;">✨ Your All-in-One Personal Ledger</div>
+        <h1 class="display-1 mb-6" style="font-size: clamp(2.5rem, 8vw, 4.5rem); font-weight: 800; line-height: 1.1; letter-spacing: -0.02em;">
+          Simplify Your <span class="text-accent">Daily Hissab</span>
+        </h1>
+        <p class="text-lg text-muted mb-10 mx-auto" style="max-width: 800px; font-size: 1.25rem; line-height: 1.6;">
+          Track your daily milk delivery (Doodh ka Hissab), manage monthly expenses, capture ideas, and store passwords securely. 
+          The ultimate productivity companion for your modern lifestyle.
+        </p>
+        <div class="flex gap-4 justify-center flex-wrap">
+          <a href="/register" class="btn btn-primary btn-lg" style="border-radius: var(--radius-md);">Get Started Free</a>
+          <a href="/login" class="btn btn-secondary btn-lg" style="border-radius: var(--radius-md);">Login</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features Grid -->
+    <section class="features-section py-24 bg-surface/20">
+      <div class="container">
+        <div class="text-center mb-16">
+          <h2 class="h1 mb-4">Powerful Features for Everyday Life</h2>
+          <p class="text-muted text-lg">Stop juggling multiple apps. Everything you need is right here.</p>
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-12 max-w-5xl mx-auto">
+          <!-- Feature 1: Milk -->
+          <div class="glass-card p-8 md:p-10 hover:translate-y-[-8px] transition-transform flex gap-6 md:gap-8 items-start">
+            <div class="feature-icon mt-1" style="font-size: 2.5rem; line-height: 1;">🥛</div>
+            <div>
+              <h3 class="h5 mb-2" style="font-weight: 700;">Milk Tracker</h3>
+              <p class="text-sm text-muted leading-relaxed">No more paper cards! Log daily milk intake, manage suppliers, and calculate monthly totals automatically.</p>
+            </div>
+          </div>
+
+          <!-- Feature 2: Expenses -->
+          <div class="glass-card p-8 md:p-10 hover:translate-y-[-8px] transition-transform flex gap-6 md:gap-8 items-start">
+            <div class="feature-icon mt-1" style="font-size: 2.5rem; line-height: 1;">💸</div>
+            <div>
+              <h3 class="h5 mb-2" style="font-weight: 700;">Expense Manager</h3>
+              <p class="text-sm text-muted leading-relaxed">Categorize your spending, track budgets, and see where your money goes. Perfect for monthly tracking.</p>
+            </div>
+          </div>
+
+          <!-- Feature 3: Notes -->
+          <div class="glass-card p-8 md:p-10 hover:translate-y-[-8px] transition-transform flex gap-6 md:gap-8 items-start">
+            <div class="feature-icon mt-1" style="font-size: 2.5rem; line-height: 1;">📝</div>
+            <div>
+              <h3 class="h5 mb-2" style="font-weight: 700;">Quick Notes</h3>
+              <p class="text-sm text-muted leading-relaxed">Capture thoughts, checklists, and reminders. Use color-coded notes and tags to stay organized effortlessly.</p>
+            </div>
+          </div>
+
+          <!-- Feature 4: Passwords -->
+          <div class="glass-card p-8 md:p-10 hover:translate-y-[-8px] transition-transform flex gap-6 md:gap-8 items-start">
+            <div class="feature-icon mt-1" style="font-size: 2.5rem; line-height: 1;">🔑</div>
+            <div>
+              <h3 class="h5 mb-2" style="font-weight: 700;">Secure Passwords</h3>
+              <p class="text-sm text-muted leading-relaxed">Store your credentials securely. Includes a generator and easy copy-to-clipboard functionality.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEO Content Section -->
+    <section class="seo-content-section py-24">
+      <div class="container">
+        <div class="glass-card p-12 md:p-20">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-16 items-center">
+            <div class="px-4">
+              <h2 class="h2 mb-8 max-w-sm">Built for Modern Convenience</h2>
+              <div class="space-y-6">
+                <div class="flex gap-4 items-center">
+                  <div class="badge" style="background:var(--accent-primary); width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:50%; flex-shrink:0; font-size: 1rem; color: white;">✓</div>
+                  <div>
+                    <h4 class="h5 mb-1">PWA Support</h4>
+                    <p class="text-sm text-muted">Install Milk Hissab on your Android or iOS device. It feels like a native app and works offline.</p>
+                  </div>
+                </div>
+                <div class="flex gap-4 items-center">
+                  <div class="badge" style="background:var(--accent-primary); width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:50%; flex-shrink:0; font-size: 1rem; color: white;">✓</div>
+                  <div>
+                    <h4 class="h5 mb-1">Fast & Reliable</h4>
+                    <p class="text-sm text-muted">Hosted on Cloudflare's global edge network. Your data is always available and lightning fast.</p>
+                  </div>
+                </div>
+                <div class="flex gap-4 items-center">
+                  <div class="badge" style="background:var(--accent-primary); width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:50%; flex-shrink:0; font-size: 1rem; color: white;">✓</div>
+                  <div>
+                    <h4 class="h5 mb-1">Privacy First</h4>
+                    <p class="text-sm text-muted">Your data is stored securely and is only accessible to you. We never share your personal information.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="text-center relative">
+              <div class="display-1" style="font-size: 10rem; opacity: 0.1;">📱</div>
+              <div class="glass-card p-6 inline-block transform rotate-3 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+                <p class="text-xl fw-bold text-accent">Digital Diary</p>
+                <p class="text-xs text-muted">v1.5 Update Now Live</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer CTA -->
+    <section class="cta-section py-24 text-center bg-accent/5">
+      <div class="container">
+        <h2 class="h1 mb-8">Ready to Digitalize Your Life?</h2>
+        <p class="text-lg text-muted mb-10 mx-auto" style="max-width: 600px;">Join thousands of users who have simplified their daily routines with Milk Hissab.</p>
+        <a href="/register" class="btn btn-primary btn-lg" style="border-radius: var(--radius-lg); box-shadow: 0 10px 30px rgba(0, 135, 108, 0.2);">Create Your Free Account</a>
+      </div>
+    </section>
+  </div>
+</Layout>
+)}
+
+<script>
+  // ─── Modal Helpers ───
+  function showModal(id) { document.getElementById(id).style.display = 'flex'; }
+
+  // ─── Main Matrix Events (Delegated) ───
+  document.querySelector('.main-matrix')?.addEventListener('click', function(e) {
+    const target = e.target as HTMLElement;
+    
+    // 1. Quantity Modal (Daily Entry)
+    const qtyCell = target.closest('.day-cell[data-date]') as HTMLElement;
+    if (qtyCell) {
+      const dateStr = qtyCell.dataset.date;
+      const aid = qtyCell.dataset.aid;
+      const val = qtyCell.querySelector('.day-cell-value')?.textContent?.trim() || '-';
+      document.getElementById('qtyDateLabel').textContent = dateStr;
+      (document.getElementById('qtyAccId') as HTMLInputElement).value = aid;
+      (document.getElementById('qtyDate') as HTMLInputElement).value = dateStr;
+      (document.getElementById('qtyInput') as HTMLInputElement).value = val === '-' ? '' : val;
+      showModal('qtyModal');
+      return;
+    }
+
+    // 2. Payment Modal (Add Payment from Matrix)
+    const payCell = target.closest('.val-paid.day-cell') as HTMLElement;
+    if (payCell) {
+      const aid = payCell.dataset.aid;
+      const frm = document.getElementById('payForm') as HTMLFormElement;
+      frm.reset();
+      (document.getElementById('payPaymentId') as HTMLInputElement).value = '0';
+      (document.getElementById('payAccId') as HTMLInputElement).value = aid;
+      (frm.querySelector('input[name="action"]') as HTMLInputElement).value = 'add_payment';
+      document.getElementById('payModalTitle').textContent = 'Add Payment';
+      showModal('payModal');
+      return;
+    }
+
+    // 3. Edit Supplier Config
+    const trigger = target.closest('.supplier-edit-trigger') as HTMLElement;
+    if (trigger) {
+      const accId = parseInt(trigger.dataset.accId || '0');
+      const accounts = (window as any).__accounts || [];
+      const acc = accounts.find((a: any) => a.id == accId);
+      
+      if (!acc) {
+        console.warn('Account not found for ID:', accId);
+        return;
+      }
+      
+      document.getElementById('accModalTitle')!.textContent = 'Edit Supplier Config';
+      (document.getElementById('accAccountId') as HTMLInputElement).value = String(acc.id);
+      (document.getElementById('accSupplierId') as HTMLSelectElement).value = String(acc.milksupplier_id);
+      document.getElementById('accSupplierId')!.dispatchEvent(new Event('change'));
+      (document.getElementById('accCategory') as HTMLSelectElement).value = String(acc.category_id);
+      (document.getElementById('accRate') as HTMLInputElement).value = String(acc.rate);
+      (document.getElementById('accAutoQty') as HTMLInputElement).value = acc.autogen_quantity ? String(acc.autogen_quantity) : '';
+      (document.getElementById('accAutoTime') as HTMLInputElement).value = acc.autogen_time || '07:30';
+      (document.getElementById('accStart') as HTMLInputElement).value = acc.start_date || '';
+      (document.getElementById('accEnd') as HTMLInputElement).value = acc.end_date || '';
+      (document.getElementById('accActive') as HTMLInputElement).checked = acc.active == 1;
+      
+      document.getElementById('accDelBtn')!.style.display = '';
+      document.getElementById('supDelBtn')!.style.display = '';
+      showModal('addAccountModal');
+      return;
+    }
+  });
+
+  // ─── Global Click Events (Delegated) ───
+  document.addEventListener('click', function(e) {
+    const target = e.target as HTMLElement;
+
+    // Close modals on overlay click
+    if (target.classList.contains('modal-overlay')) {
+      target.style.display = 'none';
+      return;
+    }
+
+    // Edit Payment (from Payment History)
+    const editPayBtn = target.closest('.edit-pay-btn') as HTMLElement;
+    if (editPayBtn) {
+      try {
+        const pay = JSON.parse(editPayBtn.getAttribute('data-pay'));
+        const frm = document.getElementById('payForm') as HTMLFormElement;
+        if (!frm) return;
+        
+        (frm.querySelector('input[name="action"]') as HTMLInputElement).value = 'edit_payment';
+        (document.getElementById('payPaymentId') as HTMLInputElement).value = String(pay.id);
+        (document.getElementById('payAccId') as HTMLInputElement).value = String(pay.account_id);
+        (frm.querySelector('input[name="amount"]') as HTMLInputElement).value = String(pay.amount);
+        (frm.querySelector('input[name="payment_date"]') as HTMLInputElement).value = pay.payment_date;
+        (frm.querySelector('input[name="note"]') as HTMLInputElement).value = pay.note || '';
+        document.getElementById('payModalTitle').textContent = 'Edit Payment';
+        showModal('payModal');
+      } catch (err) {
+        console.error('Failed to parse payment data:', err);
+      }
+      return;
+    }
+
+    // Delete Payment
+    const delPayBtn = target.closest('.del-pay-btn') as HTMLElement;
+    if (delPayBtn) {
+      const payId = delPayBtn.getAttribute('data-id');
+      if (confirm('Delete this payment permanently?')) {
+        const fd = new FormData();
+        fd.append('action', 'delete_payment');
+        fd.append('payment_id', payId);
+        fetch('/api/milk', { method: 'POST', body: fd })
+          .then(res => res.json())
+          .then(d => {
+            if (d.success) window.location.reload();
+            else alert(d.message || 'Failed.');
+          })
+          .catch(() => alert('Network error.'));
+      }
+      return;
+    }
+  });
+
+  // ─── Form Submissions ───
+  document.getElementById('qtyForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await fetch('/api/milk', { method: 'POST', body: new FormData(e.target as HTMLFormElement) });
+    window.location.reload();
+  });
+
+  document.getElementById('payForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await fetch('/api/milk', { method: 'POST', body: new FormData(e.target as HTMLFormElement) });
+    window.location.reload();
+  });
+
+  document.getElementById('accForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = (e.target as HTMLFormElement).querySelector('button[type="submit"]') as HTMLButtonElement;
+    const alertBox = document.getElementById('accAlert');
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch('/api/milk', { method: 'POST', body: new FormData(e.target as HTMLFormElement) });
+      const d = await res.json();
+      if (d.success) window.location.reload();
+      else if (alertBox) { alertBox.textContent = d.message || 'Failed.'; alertBox.style.display = 'block'; }
+    } catch { if (alertBox) { alertBox.textContent = 'Network error.'; alertBox.style.display = 'block'; } }
+    if (btn) btn.disabled = false;
+  });
+
+  // ─── Account & Supplier Management ───
+  document.querySelector('[data-open="addAccountModal"]')?.addEventListener('click', function() {
+    document.getElementById('accModalTitle').textContent = 'New Milk Supplier';
+    const frm = document.getElementById('accForm') as HTMLFormElement;
+    if (frm) frm.reset();
+    (document.getElementById('accAccountId') as HTMLInputElement).value = '0';
+    (document.getElementById('accSupplierId') as HTMLSelectElement).value = '0';
+    document.getElementById('accSupplierId').dispatchEvent(new Event('change'));
+    document.getElementById('accDelBtn').style.display = 'none';
+    document.getElementById('supDelBtn').style.display = 'none';
+    showModal('addAccountModal');
+  });
+
+  document.getElementById('accDelBtn')?.addEventListener('click', async () => {
+    if (!confirm('WARNING: Delete ALL entries and payments for this supplier THIS MONTH?')) return;
+    const fd = new FormData();
+    fd.append('action', 'delete_account');
+    fd.append('account_id', (document.getElementById('accAccountId') as HTMLInputElement).value);
+    const res = await fetch('/api/milk', { method: 'POST', body: fd });
+    const d = await res.json();
+    if (d.success) window.location.reload();
+    else alert(d.message || 'Failed.');
+  });
+
+  document.getElementById('supDelBtn')?.addEventListener('click', async () => {
+    if (!confirm('CRITICAL: PERMANENTLY delete this supplier and ALL their data?')) return;
+    const fd = new FormData();
+    fd.append('action', 'delete_supplier');
+    fd.append('supplier_id', (document.getElementById('accSupplierId') as HTMLSelectElement).value);
+    const res = await fetch('/api/milk', { method: 'POST', body: fd });
+    const d = await res.json();
+    if (d.success) window.location.reload();
+    else alert(d.message || 'Failed.');
+  });
+
+  // Set today's date for payment date input
+  const payDateInput = document.getElementById('payDate') as HTMLInputElement;
+  if (payDateInput && !payDateInput.value) {
+    const now = new Date();
+    payDateInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }
+</script>
+<script define:vars={{ accounts, pendingAutofills }}>
+  window.__accounts = accounts;
+  window.__pendingAutofills = pendingAutofills;
+
+  // Autofill confirmation
+  if (pendingAutofills && pendingAutofills.length > 0) {
+    document.getElementById('autofillModal').style.display = 'flex';
+    document.getElementById('confirmAutofillBtn')?.addEventListener('click', async function() {
+      const btn = this;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Auto-filling...';
+      for (const af of pendingAutofills) {
+        const fd = new FormData();
+        fd.append('action', 'bulk_autofill');
+        fd.append('account_id', String(af.account_id));
+        await fetch('/api/milk', { method: 'POST', body: fd });
+      }
+      window.location.reload();
+    });
+  }
+</script>

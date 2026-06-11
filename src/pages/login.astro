@@ -1,0 +1,61 @@
+---
+import Layout from '../components/Layout.astro';
+---
+<Layout title="Login - Milk Hissab">
+  <div class="login-page">
+    <div class="glass-card login-card">
+      <h1><span class="login-icon">🥛</span> Milk Hissab</h1>
+      <p class="text-muted text-sm mb-4">Track daily milk, suppliers &amp; payments</p>
+      <form id="loginForm" class="text-start">
+        <div class="mb-3">
+          <label class="form-label" for="email">Email</label>
+          <input type="email" id="email" name="email" class="form-control" placeholder="you@example.com" required autofocus>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="password">Password</label>
+          <input type="password" id="password" name="password" class="form-control" placeholder="••••••••" required>
+        </div>
+        <button type="submit" class="btn btn-primary w-100" id="loginBtn">Sign In</button>
+        <div id="loginAlert" class="alert alert-danger" style="display:none;"></div>
+      </form>
+      <p class="text-muted text-sm mt-3">
+        Don't have an account?
+        <a href="/register" style="color: var(--accent-primary); text-decoration: none; font-weight: 600;">Sign up</a>
+      </p>
+    </div>
+  </div>
+</Layout>
+<script>
+  const form = document.getElementById('loginForm') as HTMLFormElement;
+  const alertBox = document.getElementById('loginAlert') as HTMLDivElement;
+  const btn = document.getElementById('loginBtn') as HTMLButtonElement;
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    alertBox.style.display = 'none';
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Signing in...';
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: (document.getElementById('email') as HTMLInputElement).value,
+          password: (document.getElementById('password') as HTMLInputElement).value,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        window.location.href = '/';
+      } else {
+        alertBox.textContent = data.message || 'Login failed.';
+        alertBox.style.display = 'block';
+      }
+    } catch {
+      alertBox.textContent = 'Network error. Please try again.';
+      alertBox.style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = 'Sign In';
+    }
+  });
+</script>

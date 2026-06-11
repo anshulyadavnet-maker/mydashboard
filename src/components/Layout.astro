@@ -1,0 +1,135 @@
+---
+import '../styles/global.css';
+
+export interface Props {
+  title: string;
+}
+const { title } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#00876c">
+  <meta name="description" content="Milk Hissab - The ultimate daily milk delivery tracker, expense manager, personal notes, and secure password manager. Track your daily doodh ka hissab easily.">
+  <meta name="keywords" content="daily milk delivery tracker, milk accounting app, doodh ka hissab, expense manager, password manager, personal notes, milk ledger">
+  <meta property="og:title" content="Milk Hissab - Daily Tracker & Manager">
+  <meta property="og:description" content="Track milk delivery, manage expenses, save notes, and store passwords securely in one place.">
+  <meta property="og:type" content="website">
+  <meta name="color-scheme" content="dark light">
+  <title>{title}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🥛</text></svg>">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <script is:inline>
+    (function() {
+      const theme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+</head>
+<body>
+  <nav class="main-nav">
+    <div class="container flex gap-4 items-center">
+      <a href="/" class="nav-link">{Astro.locals.user ? '🥛 Milk' : '🏠 Home'}</a>
+      {Astro.locals.user && (
+        <>
+          <a href="/expenses" class="nav-link">💸 Expenses</a>
+          <a href="/notes" class="nav-link">📝 Notes</a>
+          <a href="/passwords" class="nav-link">🔑 Passwords</a>
+        </>
+      )}
+      
+      <div class="flex gap-2 ml-auto items-center">
+        <button id="theme-toggle" class="btn-icon" aria-label="Toggle Theme" title="Toggle Dark/Light Mode">
+          <span class="dark-icon">🌙</span>
+          <span class="light-icon">☀️</span>
+        </button>
+
+        {!Astro.locals.user && (
+          <>
+            <a href="/login" class="nav-link">Login</a>
+            <a href="/register" class="btn btn-primary btn-sm" style="padding: 0.4rem 1rem;">Sign Up</a>
+          </>
+        )}
+      </div>
+    </div>
+  </nav>
+  <slot />
+</body>
+
+<style is:global>
+  .btn-icon {
+    background: none;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 1.1rem;
+    transition: all 0.2s;
+  }
+  .btn-icon:hover {
+    background: var(--bg-surface-hover);
+    border-color: var(--accent-primary);
+  }
+
+  [data-theme="dark"] .light-icon { display: none; }
+  [data-theme="light"] .dark-icon { display: none; }
+
+  .main-nav {
+    background: var(--glass-bg);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(12px);
+  }
+  .nav-link {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 0.9rem;
+    padding: 0.4rem 0.8rem;
+    border-radius: var(--radius-sm);
+    transition: all 0.2s;
+  }
+  .nav-link:hover {
+    background: rgba(255,255,255,0.05);
+    color: var(--text-primary);
+  }
+  .nav-link.active {
+    background: var(--accent-primary);
+    color: white;
+  }
+</style>
+
+<script>
+  // Highlight active nav link
+  const path = window.location.pathname;
+  document.querySelectorAll('.nav-link').forEach(link => {
+    if (link.getAttribute('href') === path) {
+      link.classList.add('active');
+    }
+  });
+
+  // Theme Toggle Logic
+  const themeToggle = document.getElementById('theme-toggle');
+  themeToggle?.addEventListener('click', () => {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+  });
+</script>
+</html>

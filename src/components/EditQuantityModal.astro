@@ -1,0 +1,17 @@
+<div class="modal-overlay" id="qtyModal" style="display:none;">
+  <div class="modal-content modal-sm" style="text-align:center;">
+    <div class="modal-header">
+      <h6 class="modal-title text-muted" id="qtyDateLabel"></h6>
+      <button class="modal-close" onclick="document.getElementById('qtyModal').style.display='none'">&times;</button>
+    </div>
+    <form id="qtyForm">
+      <input type="hidden" name="action" value="update_entry">
+      <input type="hidden" name="account_id" id="qtyAccId">
+      <input type="hidden" name="entry_date" id="qtyDate">
+      <input type="number" step="0.01" name="quantity" id="qtyInput"
+             class="form-control text-center mb-3 fw-bold"
+             style="font-size:1.5rem;" autofocus>
+      <button type="submit" class="btn btn-primary w-100">Update Manual Entry</button>
+    </form>
+  </div>
+</div>

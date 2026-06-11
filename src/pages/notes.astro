@@ -1,0 +1,272 @@
+---
+import Layout from '../components/Layout.astro';
+import { getDB, getNotes } from '../lib/db';
+
+const user = Astro.locals.user!;
+if (!user) return Astro.redirect('/login');
+
+const db = getDB(Astro);
+const notes = await getNotes(db, user.userId);
+
+// Extract all unique tags
+const allTags = new Set<string>();
+notes.forEach((note: any) => {
+  if (note.tags) {
+    note.tags.split(',').forEach((t: string) => allTags.add(t.trim()));
+  }
+});
+---
+<Layout title="Notes - Milk Hissab">
+  <div class="container animate-fade-in pb-4">
+    <div class="flex-between mb-4 flex-wrap gap-4">
+      <div>
+        <h1 class="h2 mb-1">📝 Notes</h1>
+        <p class="text-muted text-sm">Capture ideas, checklists, and reminders.</p>
+      </div>
+      <button class="btn btn-primary" id="addNoteBtn">+ New Note</button>
+    </div>
+
+    <!-- Toolbar: Search & Filters -->
+    <div class="glass-card mb-4 p-3">
+      <div class="flex-between flex-wrap gap-3">
+        <div class="flex gap-2 flex-1" style="min-width:200px;">
+          <input type="text" id="noteSearch" class="form-control" placeholder="Search notes or tags...">
+        </div>
+        <div class="flex gap-2 flex-wrap">
+          <select id="tagFilter" class="form-select" style="width:auto;">
+            <option value="">All Tags</option>
+            {[...allTags].sort().map(tag => (
+              <option value={tag}>{tag}</option>
+            ))}
+          </select>
+          <select id="colorFilter" class="form-select" style="width:auto;">
+            <option value="">All Colors</option>
+            <option value="#ffffff">White</option>
+            <option value="#ff8a80">Red</option>
+            <option value="#ffd180">Orange</option>
+            <option value="#ffff8d">Yellow</option>
+            <option value="#ccff90">Green</option>
+            <option value="#a7ffeb">Teal</option>
+            <option value="#80d8ff">Blue</option>
+            <option value="#cfd8dc">Grey</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="notes-grid" id="notesGrid">
+      {notes.length === 0 ? (
+        <div class="glass-card p-8 text-center w-100" style="grid-column: 1 / -1;">
+          <h5 class="text-muted">No notes yet. Click "New Note" to get started.</h5>
+        </div>
+      ) : (
+        notes.map((note: any) => (
+          <div class="note-card glass-card p-4" 
+               data-id={note.id} 
+               data-content={note.content.toLowerCase()} 
+               data-tags={note.tags ? note.tags.toLowerCase() : ''}
+               data-color={note.color}
+               style={`border-top: 4px solid ${note.color};`}>
+            <div class="note-content mb-3" style="white-space: pre-wrap;">{note.content}</div>
+            <div class="flex-between mt-auto pt-2 border-t border-white/5">
+              <div class="flex gap-1 flex-wrap">
+                {note.tags && note.tags.split(',').map((tag: string) => (
+                  <span class="badge-sm" style="background:rgba(255,255,255,0.05); color:var(--text-muted);">
+                    #{tag.trim()}
+                  </span>
+                ))}
+              </div>
+              <div class="text-xs text-muted">
+                {new Date(note.updated_at).toLocaleDateString()}
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  </div>
+
+  <!-- Note Modal -->
+  <div class="modal-overlay" id="noteModal" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="noteModalTitle">New Note</h5>
+        <button class="modal-close" onclick="document.getElementById('noteModal').style.display='none'">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="noteForm">
+          <input type="hidden" name="action" id="noteAction" value="create">
+          <input type="hidden" name="id" id="noteId" value="">
+          
+          <div class="mb-3">
+            <label class="form-label">Note Content *</label>
+            <textarea class="form-control" name="content" id="noteContent" rows="6" required placeholder="What's on your mind?"></textarea>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Tags (comma separated)</label>
+            <input type="text" class="form-control" name="tags" id="noteTags" placeholder="e.g. Work, Personal, Ideas">
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label">Color Theme</label>
+            <div class="color-picker-grid">
+              {['#ffffff', '#ff8a80', '#ffd180', '#ffff8d', '#ccff90', '#a7ffeb', '#80d8ff', '#cfd8dc'].map(c => (
+                <label class="color-option">
+                  <input type="radio" name="color" value={c} checked={c === '#ffffff'}>
+                  <span class="color-circle" style={`background:${c}`}></span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div class="flex gap-2">
+            <button type="submit" class="btn btn-primary" style="flex:1;">Save Note</button>
+            <button type="button" class="btn btn-danger btn-sm" id="noteDelBtn" style="display:none;">🗑️</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  const modal = document.getElementById('noteModal');
+  const form = document.getElementById('noteForm') as HTMLFormElement;
+  const addBtn = document.getElementById('addNoteBtn');
+  const searchInput = document.getElementById('noteSearch') as HTMLInputElement;
+  const tagFilter = document.getElementById('tagFilter') as HTMLSelectElement;
+  const colorFilter = document.getElementById('colorFilter') as HTMLSelectElement;
+
+  function showModal() { modal!.style.display = 'flex'; }
+  function hideModal() { modal!.style.display = 'none'; }
+
+  addBtn?.addEventListener('click', () => {
+    form.reset();
+    document.getElementById('noteModalTitle')!.textContent = 'New Note';
+    (document.getElementById('noteAction') as HTMLInputElement).value = 'create';
+    (document.getElementById('noteId') as HTMLInputElement).value = '';
+    document.getElementById('noteDelBtn')!.style.display = 'none';
+    showModal();
+  });
+
+  document.querySelectorAll('.note-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const id = card.getAttribute('data-id');
+      const content = card.querySelector('.note-content')?.textContent;
+      const tags = Array.from(card.querySelectorAll('.badge-sm')).map(b => b.textContent?.replace('#', '')).join(', ');
+      const color = card.getAttribute('data-color');
+
+      document.getElementById('noteModalTitle')!.textContent = 'Edit Note';
+      (document.getElementById('noteAction') as HTMLInputElement).value = 'update';
+      (document.getElementById('noteId') as HTMLInputElement).value = id!;
+      (document.getElementById('noteContent') as HTMLTextAreaElement).value = content!;
+      (document.getElementById('noteTags') as HTMLInputElement).value = tags;
+      
+      const radio = form.querySelector(`input[name="color"][value="${color}"]`) as HTMLInputElement;
+      if (radio) radio.checked = true;
+
+      document.getElementById('noteDelBtn')!.style.display = 'block';
+      showModal();
+    });
+  });
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const formData = new FormData(form);
+    const rawData = Object.fromEntries(formData.entries());
+    const data = {
+      ...rawData,
+      tags: (rawData.tags as string).split(',').map(t => t.trim()).filter(t => t !== '')
+    };
+    
+    const res = await fetch('/api/notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    
+    if (res.ok) window.location.reload();
+  });
+
+  document.getElementById('noteDelBtn')?.addEventListener('click', async () => {
+    if (!confirm('Delete this note?')) return;
+    const id = (document.getElementById('noteId') as HTMLInputElement).value;
+    const res = await fetch('/api/notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', id })
+    });
+    if (res.ok) window.location.reload();
+  });
+
+  function filterNotes() {
+    const query = searchInput.value.toLowerCase();
+    const tag = tagFilter.value.toLowerCase();
+    const color = colorFilter.value;
+    
+    document.querySelectorAll('.note-card').forEach(card => {
+      const c = card as HTMLElement;
+      const content = c.dataset.content || '';
+      const tags = c.dataset.tags || '';
+      const cardColor = c.dataset.color || '';
+      
+      const matchesSearch = content.includes(query) || tags.includes(query);
+      const matchesTag = tag === '' || tags.includes(tag);
+      const matchesColor = color === '' || cardColor === color;
+      
+      c.style.display = (matchesSearch && matchesTag && matchesColor) ? 'block' : 'none';
+    });
+  }
+
+  searchInput?.addEventListener('input', filterNotes);
+  tagFilter?.addEventListener('change', filterNotes);
+  colorFilter?.addEventListener('change', filterNotes);
+
+  modal?.addEventListener('click', (e) => {
+    if (e.target === modal) hideModal();
+  });
+</script>
+
+<style>
+  .notes-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+  }
+  .note-card {
+    cursor: pointer;
+    transition: transform 0.2s;
+    display: flex;
+    flex-direction: column;
+    min-height: 180px;
+  }
+  .note-card:hover {
+    transform: translateY(-4px);
+  }
+  .color-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 0.5rem;
+  }
+  .color-option {
+    cursor: pointer;
+    position: relative;
+  }
+  .color-option input {
+    position: absolute;
+    opacity: 0;
+  }
+  .color-circle {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    transition: all 0.2s;
+  }
+  .color-option input:checked + .color-circle {
+    border-color: var(--accent-primary);
+    transform: scale(1.1);
+  }
+</style>
