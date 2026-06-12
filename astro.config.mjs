@@ -57,7 +57,7 @@ export default defineConfig({
   },
   vite: {
     ssr: {
-      external: ['bcryptjs', 'sharp', 'detect-libc'],
+      noExternal: ['bcryptjs'],
     },
   },
 });
