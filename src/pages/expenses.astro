@@ -1,172 +1,241 @@
 ---
 import Layout from '../components/Layout.astro';
-import { getDB, getExpenses } from '../lib/db';
+import { getDB, getExpenses, recordToolUsage } from '../lib/db';
 import { getLocalDateString } from '../lib/milk';
 
-const user = Astro.locals.user!;
-if (!user) return Astro.redirect('/login');
+const user = Astro.locals.user;
+const isLoggedIn = !!user;
 
-const db = getDB(Astro);
-const url = new URL(Astro.request.url);
-let month = parseInt(url.searchParams.get('m') || '');
-let year = parseInt(url.searchParams.get('y') || '');
+let month, year, expenses = [], totalMonthExpense = 0, groupedExpenses: Record<string, any[]> = {}, sortedDates: string[] = [];
 
 const now = new Date();
+const url = new URL(Astro.request.url);
+month = parseInt(url.searchParams.get('m') || '');
+year = parseInt(url.searchParams.get('y') || '');
 if (!month || month < 1 || month > 12) month = now.getMonth() + 1;
 if (!year) year = now.getFullYear();
 
-const expenses = await getExpenses(db, user.userId, year, month);
-
-// Group expenses by date
-const groupedExpenses: Record<string, any[]> = {};
-expenses.forEach((exp: any) => {
-  if (!groupedExpenses[exp.expense_date]) {
-    groupedExpenses[exp.expense_date] = [];
-  }
-  groupedExpenses[exp.expense_date].push(exp);
-});
-
-const sortedDates = Object.keys(groupedExpenses).sort((a, b) => b.localeCompare(a));
+if (isLoggedIn) {
+  const db = getDB(Astro);
+  await recordToolUsage(db, user.userId, 'expenses');
+  expenses = await getExpenses(db, user.userId, year, month);
+  
+  // Group expenses by date
+  expenses.forEach((exp: any) => {
+    if (!groupedExpenses[exp.expense_date]) {
+      groupedExpenses[exp.expense_date] = [];
+    }
+    groupedExpenses[exp.expense_date].push(exp);
+  });
+  
+  sortedDates = Object.keys(groupedExpenses).sort((a, b) => b.localeCompare(a));
+  totalMonthExpense = expenses.reduce((sum: number, exp: any) => sum + Number(exp.amount), 0);
+}
 
 const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const monthName = monthNames[month - 1];
-
-const totalMonthExpense = expenses.reduce((sum: number, exp: any) => sum + Number(exp.amount), 0);
 ---
-<Layout title={`Expenses - ${monthName} ${year}`}>
-  <div class="container animate-fade-in pb-4">
-    <div class="flex-between mb-4 flex-wrap gap-4">
-      <div>
-        <h1 class="h2 mb-1">💸 Expenses</h1>
-        <p class="text-muted text-sm">Track your daily and monthly spending.</p>
+<Layout title={`Expenses - ${monthName} ${year}`} accentColor="#e11d48">
+  {isLoggedIn ? (
+    <div class="container animate-fade-in pb-4">
+      <div class="flex-between mb-4 flex-wrap gap-4">
+        <div>
+          <h1 class="h2 mb-1">💸 Expenses</h1>
+          <p class="text-muted text-sm">Track your daily and monthly spending.</p>
+        </div>
+        <button class="btn btn-primary" id="addExpenseBtn">+ Add Expense</button>
       </div>
-      <button class="btn btn-primary" id="addExpenseBtn">+ Add Expense</button>
-    </div>
 
-    <!-- Filters -->
-    <div class="glass-card mb-4 p-3">
-      <div class="flex-between flex-wrap gap-3">
-        <div class="flex gap-2" style="align-items:center;">
-          <strong class="text-muted text-xs" style="text-transform:uppercase;">📅 Period:</strong>
-          <form method="GET" class="flex gap-2">
-            <select name="m" class="form-select" style="width:auto;" onchange="this.form.submit()">
-              {monthNames.map((name, i) => (
-                <option value={i + 1} selected={i + 1 === month}>{name}</option>
-              ))}
-            </select>
-            <select name="y" class="form-select" style="width:auto;" onchange="this.form.submit()">
-              {Array.from({ length: (now.getFullYear() + 1) - 2020 + 1 }, (_, i) => now.getFullYear() + 1 - i).map(y => (
-                <option value={y} selected={y === year}>{y}</option>
-              ))}
-            </select>
-          </form>
-        </div>
-        <div class="flex gap-2 flex-1" style="min-width:200px;">
-          <input type="text" id="expenseSearch" class="form-control" placeholder="Search by category or note...">
-        </div>
-        <div class="text-lg fw-bold text-accent">
-          Total: ₹{totalMonthExpense.toFixed(2)}
-        </div>
-      </div>
-    </div>
-
-    <div id="expenseList">
-      {sortedDates.length === 0 ? (
-        <div class="glass-card p-8 text-center">
-          <h5 class="text-muted">No expenses recorded for this month.</h5>
-        </div>
-      ) : (
-        sortedDates.map(date => (
-          <div class="expense-day-group mb-4">
-            <div class="text-xs fw-bold text-muted mb-2 px-1 uppercase" style="letter-spacing:0.05em;">
-              {new Date(date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-            </div>
-            <div class="glass-card overflow-hidden">
-              <table class="w-100">
-                <tbody>
-                  {groupedExpenses[date].map(exp => (
-                    <tr class="expense-row" data-exp={JSON.stringify(exp)}>
-                      <td style={`width: 4px; background: ${exp.color || '#00876c'}; padding:0;`}></td>
-                      <td class="p-3">
-                        <div class="fw-bold">{exp.category}</div>
-                        {exp.note && <div class="text-xs text-muted">{exp.note}</div>}
-                      </td>
-                      <td class="p-3 text-end fw-bold" style="font-size:1.1rem;">
-                        ₹{Number(exp.amount).toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ))
-      )}
-    </div>
-  </div>
-
-  <!-- Add/Edit Modal -->
-  <div class="modal-overlay" id="expenseModal" style="display:none;">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="expModalTitle">Add Expense</h5>
-        <button class="modal-close" onclick="document.getElementById('expenseModal').style.display='none'">&times;</button>
-      </div>
-      <div class="modal-body">
-        <form id="expForm">
-          <input type="hidden" name="action" id="expAction" value="create">
-          <input type="hidden" name="id" id="expId" value="">
-          
-          <div class="row mb-3">
-            <div class="col-6">
-              <label class="form-label">Amount (₹) *</label>
-              <input type="number" step="0.01" class="form-control" name="amount" id="expAmount" required placeholder="0.00">
-            </div>
-            <div class="col-6">
-              <label class="form-label">Category *</label>
-              <input type="text" class="form-control" name="category" id="expCategory" list="categoryList" required placeholder="e.g. Food">
-              <datalist id="categoryList">
-                <option value="Food">
-                <option value="Transport">
-                <option value="Rent">
-                <option value="Shopping">
-                <option value="Health">
-                <option value="Utilities">
-              </datalist>
-            </div>
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Note / Description</label>
-            <input type="text" class="form-control" name="note" id="expNote" placeholder="What was this for?">
-          </div>
-
-          <div class="row mb-4">
-            <div class="col-6">
-              <label class="form-label">Date *</label>
-              <input type="date" class="form-control" name="date" id="expDate" value={getLocalDateString()} required>
-            </div>
-            <div class="col-6">
-              <label class="form-label">Color Theme</label>
-              <div class="color-picker-grid">
-                {['#ffffff', '#ff8a80', '#ffd180', '#ffff8d', '#ccff90', '#a7ffeb', '#80d8ff', '#cfd8dc'].map(c => (
-                  <label class="color-option">
-                    <input type="radio" name="color" value={c} checked={c === '#ffffff'}>
-                    <span class="color-circle" style={`background:${c}`}></span>
-                  </label>
+      <!-- Filters & Summary -->
+      <div class="glass-card mb-4 p-3">
+        <div class="flex-between flex-wrap gap-3">
+          <div class="flex gap-2" style="align-items:center;">
+            <strong class="text-muted text-xs" style="text-transform:uppercase;letter-spacing:0.04em;">📅 Period:</strong>
+            <form method="GET" class="flex gap-2">
+              <select name="m" class="form-select" style="width:auto;" onchange="this.form.submit()">
+                {monthNames.map((name, i) => (
+                  <option value={i + 1} selected={i + 1 === month}>{name}</option>
                 ))}
+              </select>
+              <select name="y" class="form-select" style="width:auto;" onchange="this.form.submit()">
+                {Array.from({ length: (now.getFullYear() + 1) - 2020 + 1 }, (_, i) => now.getFullYear() + 1 - i).map(y => (
+                  <option value={y} selected={y === year}>{y}</option>
+                ))}
+              </select>
+            </form>
+          </div>
+          <div class="flex gap-2 flex-1" style="min-width:200px;">
+            <input type="text" id="expenseSearch" class="form-control" placeholder="Search by category or note...">
+          </div>
+          <div class="text-lg fw-bold text-accent">
+            Total: ₹{totalMonthExpense.toFixed(2)}
+          </div>
+        </div>
+      </div>
+
+      <div id="expenseList">
+        {sortedDates.length === 0 ? (
+          <div class="glass-card p-8 text-center">
+            <h5 class="text-muted">No expenses recorded for this month.</h5>
+          </div>
+        ) : (
+          sortedDates.map(date => (
+            <div class="expense-day-group mb-4">
+              <div class="text-xs fw-bold text-muted mb-2 px-1 uppercase" style="letter-spacing:0.05em;">
+                {new Date(date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              </div>
+              <div class="glass-card overflow-hidden">
+                <table class="w-100">
+                  <tbody>
+                    {groupedExpenses[date].map(exp => (
+                      <tr class="expense-row" data-exp={JSON.stringify(exp)}>
+                        <td style={`width: 4px; background: ${exp.color || '#e11d48'}; padding:0;`}></td>
+                        <td class="p-3">
+                          <div class="fw-bold">{exp.category}</div>
+                          {exp.note && <div class="text-xs text-muted">{exp.note}</div>}
+                        </td>
+                        <td class="p-3 text-end fw-bold" style="font-size:1.1rem;">
+                          ₹{Number(exp.amount).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
-          </div>
+          ))
+        )}
+      </div>
 
-          <div class="flex gap-2">
-            <button type="submit" class="btn btn-primary" style="flex:1;">Save Expense</button>
-            <button type="button" class="btn btn-danger btn-sm" id="expDelBtn" style="display:none;">🗑️</button>
+      <!-- Add/Edit Modal -->
+      <div class="modal-overlay" id="expenseModal" style="display:none;">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="expModalTitle">Add Expense</h5>
+            <button class="modal-close" onclick="document.getElementById('expenseModal').style.display='none'">&times;</button>
           </div>
-        </form>
+          <div class="modal-body">
+            <form id="expForm">
+              <input type="hidden" name="action" id="expAction" value="create">
+              <input type="hidden" name="id" id="expId" value="">
+              
+              <div class="mb-3">
+                <label class="form-label" for="expAmount">Amount (₹)</label>
+                <input type="number" step="0.01" id="expAmount" name="amount" class="form-control" placeholder="0.00" required>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label" for="expCategory">Category</label>
+                <input type="text" id="expCategory" name="category" class="form-control" placeholder="e.g. Food, Rent, Travel" required list="categoriesList">
+                <datalist id="categoriesList">
+                  <option value="Food"></option>
+                  <option value="Rent"></option>
+                  <option value="Travel"></option>
+                  <option value="Utilities"></option>
+                  <option value="Shopping"></option>
+                  <option value="Medical"></option>
+                  <option value="Entertainment"></option>
+                </datalist>
+              </div>
+
+              <div class="row mb-3">
+                <div class="col-6">
+                  <label class="form-label" for="expDate">Date</label>
+                  <input type="date" id="expDate" name="expense_date" class="form-control" value={getLocalDateString(new Date())} required>
+                </div>
+                <div class="col-6">
+                  <label class="form-label">Color Theme</label>
+                  <div class="color-picker-grid">
+                    {['#ffffff', '#ff8a80', '#ffd180', '#ffff8d', '#ccff90', '#a7ffeb', '#80d8ff', '#cfd8dc'].map(c => (
+                      <label class="color-option">
+                        <input type="radio" name="color" value={c} checked={c === '#ffffff'}>
+                        <span class="color-circle" style={`background:${c}`}></span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label" for="expNote">Optional Note</label>
+                <input type="text" id="expNote" name="note" class="form-control" placeholder="e.g. milk of june, groceries">
+              </div>
+
+              <div class="flex gap-2">
+                <button type="submit" class="btn btn-primary" style="flex:1;">Save Expense</button>
+                <button type="button" class="btn btn-danger btn-sm" id="expDelBtn" style="display:none;">🗑️</button>
+              </div>
+            </form>
+          </div>
+        </div>
       </div>
     </div>
-  </div>
+  ) : (
+    <!-- Public SEO Landing Page -->
+    <div class="container animate-fade-in pb-12">
+      <div class="dashboard-hero py-12 mb-8 text-center glass-card p-8">
+        <span class="badge mb-2">💸 Expense Management Utility</span>
+        <h1 class="h1 mb-2" style="font-weight: 800; letter-spacing: -0.02em;">Online Expense Manager &amp; Budget Tracker</h1>
+        <p class="text-muted text-sm max-w-sm mx-auto mb-6">
+          Log daily cash expenses, categorize your monthly budget allocations, analyze spending layouts, and secure your financial bookkeeping.
+        </p>
+        <div class="flex gap-3 justify-center">
+          <a href="/login" class="btn btn-primary">Sign In to Dashboard</a>
+          <a href="/register" class="btn">Create Free Account</a>
+        </div>
+      </div>
+
+      <!-- Features grid -->
+      <section class="glass-card p-6 mb-8">
+        <h2 class="h4 mb-4 text-accent" style="font-weight: 800;">Key Features of our Budget Tracker</h2>
+        <div class="row gap-4" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); display: grid;">
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">💰 Real-Time Cash Tracking</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Record cash expenses instantly. Log description, amount, date, and assign custom color coding to each transaction.
+            </p>
+          </div>
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">🗂️ Spend Categorization</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Group transactions by categories like Food, Utilities, Shopping, Rent, Travel, or Entertainment for structured analysis.
+            </p>
+          </div>
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">📈 Monthly Budget Summaries</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Get calculated monthly totals in a single panel. Spot spending peaks and stay within your financial targets.
+            </p>
+          </div>
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">🔒 Absolute Serverless Privacy</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Your logs are protected on your secure, isolated workspace backed by Cloudflare serverless architecture.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- FAQ Section -->
+      <section class="glass-card p-6">
+        <h2 class="h4 mb-4 text-accent" style="font-weight: 800;">Frequently Asked Questions (FAQs)</h2>
+        <div class="space-y-6">
+          <div>
+            <h3 class="h6 fw-bold mb-1">Is my financial data shared with advertisers?</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Never. <strong>MYDASHBOARD.CO.IN</strong> guarantees total user data privacy. All entries are written directly to your private workspace database.
+            </p>
+          </div>
+          <div>
+            <h3 class="h6 fw-bold mb-1">Can I download or export my expense list?</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Export features are coming soon as part of the advanced workspace utility roadmap. You can vote to expedite this feature in the home portal.
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+  )}
 </Layout>
 
 <script>

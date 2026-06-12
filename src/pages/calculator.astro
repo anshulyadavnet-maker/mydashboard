@@ -1,0 +1,431 @@
+---
+import Layout from '../components/Layout.astro';
+import { getDB, recordToolUsage } from '../lib/db';
+
+const user = Astro.locals.user;
+if (user) {
+  try {
+    const db = getDB(Astro);
+    await recordToolUsage(db, user.userId, 'calculator');
+  } catch (err) {
+    console.error('Failed to record tool usage:', err);
+  }
+}
+---
+<Layout title="Online Calculator - MYDASHBOARD.CO.IN" accentColor="#64748b">
+  <script is:inline>
+    // Track local storage usage for anonymous sorting
+    (function() {
+      try {
+        const counts = JSON.parse(localStorage.getItem('tool_usage_local') || '{}');
+        counts['calculator'] = (counts['calculator'] || 0) + 1;
+        localStorage.setItem('tool_usage_local', JSON.stringify(counts));
+      } catch (e) {}
+    })();
+  </script>
+
+  <div class="container animate-fade-in pb-8">
+    <div class="text-center mb-8">
+      <div class="tool-badge mb-2">Utility Tool</div>
+      <h1 class="h1">📊 Smart Calculator</h1>
+      <p class="text-muted text-sm max-w-sm mx-auto">
+        A premium, responsive math calculator with keyboard shortcuts and a history log.
+      </p>
+    </div>
+
+    <div class="row max-w-4xl mx-auto gap-6 justify-center">
+      <!-- Calculator Container -->
+      <div class="col-12 col-6 md:col-6">
+        <div class="glass-card calculator-card p-6">
+          <!-- Screen / Display -->
+          <div class="calc-screen mb-4 p-4 text-end">
+            <div id="calc-history" class="calc-history text-xs text-muted"></div>
+            <div id="calc-display" class="calc-display display-1">0</div>
+          </div>
+
+          <!-- Buttons Grid -->
+          <div class="calc-grid">
+            <button class="btn btn-calc action" data-action="clear">AC</button>
+            <button class="btn btn-calc action" data-action="backspace">⌫</button>
+            <button class="btn btn-calc action" data-action="percent">%</button>
+            <button class="btn btn-calc operator" data-val="/">÷</button>
+
+            <button class="btn btn-calc num" data-val="7">7</button>
+            <button class="btn btn-calc num" data-val="8">8</button>
+            <button class="btn btn-calc num" data-val="9">9</button>
+            <button class="btn btn-calc operator" data-val="*">×</button>
+
+            <button class="btn btn-calc num" data-val="4">4</button>
+            <button class="btn btn-calc num" data-val="5">5</button>
+            <button class="btn btn-calc num" data-val="6">6</button>
+            <button class="btn btn-calc operator" data-val="-">-</button>
+
+            <button class="btn btn-calc num" data-val="1">1</button>
+            <button class="btn btn-calc num" data-val="2">2</button>
+            <button class="btn btn-calc num" data-val="3">3</button>
+            <button class="btn btn-calc operator" data-val="+">+</button>
+
+            <button class="btn btn-calc action" data-action="toggle-sign">±</button>
+            <button class="btn btn-calc num" data-val="0">0</button>
+            <button class="btn btn-calc num" data-val=".">.</button>
+            <button class="btn btn-calc btn-primary equals" data-action="equals">=</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- History Sidebar -->
+      <div class="col-12 col-6 md:col-6">
+        <div class="glass-card history-card p-6 flex flex-col h-full">
+          <div class="flex-between mb-4">
+            <h2 class="h5 m-0">📜 History Log</h2>
+            <button id="clear-history" class="btn btn-sm btn-secondary" style="font-size:0.75rem;">Clear All</button>
+          </div>
+          <div id="history-list" class="flex-1 overflow-y-auto pr-1 text-sm text-muted" style="max-height: 290px; min-height: 200px;">
+            <div class="empty-history text-center py-8">No calculations yet.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<style is:global>
+  /* Local styles for Calculator tool */
+  .tool-badge {
+    display: inline-block;
+    background: rgba(100, 116, 139, 0.15);
+    color: #64748b;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.25rem 0.75rem;
+    border-radius: 50px;
+    border: 1px solid rgba(100, 116, 139, 0.2);
+  }
+
+  .calculator-card {
+    border-color: rgba(100, 116, 139, 0.2);
+    box-shadow: 0 10px 40px rgba(100, 116, 139, 0.1);
+  }
+
+  .calc-screen {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    min-height: 90px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
+  }
+
+  [data-theme="light"] .calc-screen {
+    background: #f1f5f9;
+  }
+
+  .calc-history {
+    min-height: 1.5rem;
+    white-space: nowrap;
+    overflow-x: auto;
+    font-size: 0.8rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    scrollbar-width: none;
+  }
+  .calc-history::-webkit-scrollbar {
+    display: none;
+  }
+
+  .calc-display {
+    font-size: 2.2rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.2;
+    word-break: break-all;
+    user-select: text;
+  }
+
+  .calc-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.75rem;
+  }
+
+  .btn-calc {
+    height: 52px;
+    font-size: 1.15rem;
+    font-weight: 600;
+    border-radius: var(--radius-md) !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .btn-calc:hover {
+    background: var(--bg-surface-hover);
+    transform: scale(1.02);
+  }
+
+  .btn-calc:active {
+    transform: scale(0.97);
+  }
+
+  .btn-calc.operator {
+    background: rgba(100, 116, 139, 0.1);
+    color: #475569;
+    border-color: rgba(100, 116, 139, 0.2);
+  }
+  [data-theme="dark"] .btn-calc.operator {
+    color: #94a3b8;
+  }
+
+  .btn-calc.operator:hover {
+    background: rgba(100, 116, 139, 0.2);
+  }
+
+  .btn-calc.action {
+    background: rgba(224, 85, 106, 0.05);
+    color: var(--accent-danger);
+    border-color: rgba(224, 85, 106, 0.1);
+  }
+
+  .btn-calc.action:hover {
+    background: rgba(224, 85, 106, 0.15);
+  }
+
+  .btn-calc.equals {
+    background: #64748b;
+    border-color: #64748b;
+    color: white !important;
+  }
+  .btn-calc.equals:hover {
+    background: #475569;
+    box-shadow: 0 4px 12px rgba(100, 116, 139, 0.3);
+  }
+
+  .history-card {
+    border-color: var(--border-color);
+  }
+
+  .history-item {
+    padding: 0.6rem;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: background-color 0.2s;
+  }
+  .history-item:hover {
+    background-color: var(--bg-surface-hover);
+  }
+
+  .history-expr {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+  .history-res {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+</style>
+
+<script>
+  let displayValue = '0';
+  let historyValue = '';
+  let shouldResetDisplay = false;
+
+  const displayEl = document.getElementById('calc-display');
+  const historyEl = document.getElementById('calc-history');
+  const historyListEl = document.getElementById('history-list');
+  const clearHistoryBtn = document.getElementById('clear-history');
+
+  // Load history from localStorage
+  let calculationHistory: Array<{expr: string, res: string}> = [];
+  try {
+    calculationHistory = JSON.parse(localStorage.getItem('calc_history') || '[]');
+  } catch (e) {}
+
+  function updateDisplay() {
+    if (displayEl) displayEl.textContent = displayValue;
+    if (historyEl) historyEl.textContent = historyValue;
+  }
+
+  function appendNumber(num: string) {
+    if (displayValue === '0' || shouldResetDisplay) {
+      displayValue = num;
+      shouldResetDisplay = false;
+    } else {
+      // Prevent multiple decimals
+      if (num === '.' && displayValue.includes('.')) return;
+      displayValue += num;
+    }
+    updateDisplay();
+  }
+
+  function handleOperator(op: string) {
+    shouldResetDisplay = false;
+    const lastChar = historyValue.trim().slice(-1);
+    
+    // If screen is 0 and history is empty, initialize with 0
+    if (displayValue === '0' && historyValue === '') {
+      historyValue = '0 ' + op + ' ';
+      updateDisplay();
+      return;
+    }
+
+    if (historyValue && ['+', '-', '*', '/'].includes(lastChar) && shouldResetDisplay === false && displayValue === '0') {
+      // replace operator
+      historyValue = historyValue.slice(0, -2) + op + ' ';
+    } else {
+      historyValue += displayValue + ' ' + op + ' ';
+      displayValue = '0';
+    }
+    updateDisplay();
+  }
+
+  function handleAction(action: string) {
+    if (action === 'clear') {
+      displayValue = '0';
+      historyValue = '';
+      shouldResetDisplay = false;
+    } else if (action === 'backspace') {
+      if (displayValue.length > 1) {
+        displayValue = displayValue.slice(0, -1);
+      } else {
+        displayValue = '0';
+      }
+    } else if (action === 'percent') {
+      const val = parseFloat(displayValue);
+      displayValue = String(val / 100);
+    } else if (action === 'toggle-sign') {
+      if (displayValue !== '0') {
+        if (displayValue.startsWith('-')) {
+          displayValue = displayValue.slice(1);
+        } else {
+          displayValue = '-' + displayValue;
+        }
+      }
+    } else if (action === 'equals') {
+      evaluateResult();
+    }
+    updateDisplay();
+  }
+
+  function evaluateResult() {
+    if (!historyValue) return;
+    
+    const expression = historyValue + displayValue;
+    try {
+      // Use standard safe evaluation (no evil eval - replace custom chars then compute securely)
+      // Since it's a basic calculator, we can do it via a simple safe parser or function.
+      // In Javascript, we can do:
+      const sanitized = expression.replace(/×/g, '*').replace(/÷/g, '/');
+      const result = new Function(`return (${sanitized})`)();
+      
+      if (result === undefined || isNaN(result) || !isFinite(result)) {
+        displayValue = 'Error';
+      } else {
+        // Limit decimals
+        displayValue = String(Number(result.toFixed(8)));
+        // Save to history list
+        saveToHistory(expression, displayValue);
+      }
+      historyValue = '';
+      shouldResetDisplay = true;
+    } catch (e) {
+      displayValue = 'Error';
+      historyValue = '';
+      shouldResetDisplay = true;
+    }
+    updateDisplay();
+  }
+
+  function saveToHistory(expr: string, res: string) {
+    calculationHistory.unshift({ expr, res });
+    // Keep max 20 items
+    if (calculationHistory.length > 20) calculationHistory.pop();
+    localStorage.setItem('calc_history', JSON.stringify(calculationHistory));
+    renderHistory();
+  }
+
+  function renderHistory() {
+    if (!historyListEl) return;
+    if (calculationHistory.length === 0) {
+      historyListEl.innerHTML = '<div class="empty-history text-center py-8">No calculations yet.</div>';
+      return;
+    }
+
+    historyListEl.innerHTML = calculationHistory.map((item, index) => `
+      <div class="history-item" data-index="${index}">
+        <div class="history-expr">${item.expr} =</div>
+        <div class="history-res">${item.res}</div>
+      </div>
+    `).join('');
+  }
+
+  // Event Listeners for buttons
+  document.querySelectorAll('.btn-calc').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const target = e.currentTarget as HTMLElement;
+      if (target.classList.contains('num')) {
+        appendNumber(target.dataset.val || '');
+      } else if (target.classList.contains('operator')) {
+        handleOperator(target.dataset.val || '');
+      } else if (target.classList.contains('action') || target.classList.contains('equals')) {
+        handleAction(target.dataset.action || '');
+      }
+    });
+  });
+
+  // History click loads the result back to screen
+  historyListEl?.addEventListener('click', (e) => {
+    const item = (e.target as HTMLElement).closest('.history-item') as HTMLElement;
+    if (item) {
+      const index = parseInt(item.dataset.index || '0');
+      const calc = calculationHistory[index];
+      if (calc) {
+        displayValue = calc.res;
+        historyValue = '';
+        shouldResetDisplay = true;
+        updateDisplay();
+      }
+    }
+  });
+
+  // Clear history action
+  clearHistoryBtn?.addEventListener('click', () => {
+    calculationHistory = [];
+    localStorage.removeItem('calc_history');
+    renderHistory();
+  });
+
+  // Keyboard support
+  document.addEventListener('keydown', (e) => {
+    const key = e.key;
+    if (/[0-9]/.test(key)) {
+      appendNumber(key);
+    } else if (key === '.') {
+      appendNumber('.');
+    } else if (['+', '-', '*', '/'].includes(key)) {
+      handleOperator(key);
+    } else if (key === 'Enter' || key === '=') {
+      handleAction('equals');
+    } else if (key === 'Backspace') {
+      handleAction('backspace');
+    } else if (key === 'Escape') {
+      handleAction('clear');
+    } else if (key === '%') {
+      handleAction('percent');
+    }
+  });
+
+  // Initial render
+  renderHistory();
+  updateDisplay();
+</script>

@@ -1,565 +1,722 @@
 ---
 import Layout from '../components/Layout.astro';
-import Header from '../components/Header.astro';
-import SupplierSummary from '../components/SupplierSummary.astro';
-import PaymentHistory from '../components/PaymentHistory.astro';
-import AddAccountModal from '../components/AddAccountModal.astro';
-import EditQuantityModal from '../components/EditQuantityModal.astro';
-import PaymentModal from '../components/PaymentModal.astro';
-import AutofillModal from '../components/AutofillModal.astro';
-import { getDB } from '../lib/db';
-import {
-  getAccounts, getSuppliers, getCategories, getEntriesForAccount,
-  getPaymentsForAccount, getPaymentHistory, checkAccountExists,
-  createAccount,
-} from '../lib/db';
-import {
-  daysInMonth, previousMonth, buildMatrixRow, detectMissingAutofills,
-  getCarryForwardData,
-} from '../lib/milk';
+import { getDB, getToolUsage } from '../lib/db';
 
 const user = Astro.locals.user;
-let month, year, totalDays, monthName, accounts, suppliersList, categoriesList, paymentHistoryList;
-let matrix = {};
-let pendingAutofills = [];
-let groupedTotals = {};
+let loggedIn = false;
+let userName = '';
 
-if (user) {
-  const db = getDB(Astro);
-
-  const url = new URL(Astro.request.url);
-  month = parseInt(url.searchParams.get('m') || '');
-  year = parseInt(url.searchParams.get('y') || '');
-
-  const now = new Date();
-  if (!month || month < 1 || month > 12) month = now.getMonth() + 1;
-  if (!year) year = now.getFullYear();
-
-  totalDays = daysInMonth(year, month);
-  const monthNamesList = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  monthName = monthNamesList[month - 1];
-
-  // Carry forward active accounts from previous month
-  const { year: prevYear, month: prevMonth } = previousMonth(year, month);
-  const prevAccountRows = await db.prepare(
-    'SELECT * FROM milk_accounts WHERE user_id = ? AND active = 1 AND year = ? AND month = ?'
-  ).bind(user.userId, prevYear, prevMonth).all();
-  const carryForwardData = getCarryForwardData(prevAccountRows.results, year, month);
-  for (const cf of carryForwardData) {
-    const exists = await checkAccountExists(db, user.userId, cf.supplierId, cf.categoryId, cf.autogenTime, year, month);
-    if (!exists) {
-      await createAccount(db, cf);
-    }
-  }
-
-  // Fetch current month data
-  accounts = await getAccounts(db, user.userId, year, month);
-  suppliersList = await getSuppliers(db, user.userId);
-  categoriesList = await getCategories(db, user.userId);
-  paymentHistoryList = await getPaymentHistory(db, user.userId, year, month);
-
-  // Build matrix
-  for (const acc of accounts) {
-    const dbEntries = await getEntriesForAccount(db, acc.id, year, month);
-    const totalPayments = Number(await getPaymentsForAccount(db, acc.id)) || 0;
-    const row = buildMatrixRow(acc, dbEntries, totalDays, totalPayments);
-    matrix[acc.id] = row;
-    const { pending } = detectMissingAutofills(acc, dbEntries, year, month, totalDays);
-    if (pending) pendingAutofills.push(pending);
-  }
-
-  // Group by supplier for summary
-  for (const [aid, row] of Object.entries(matrix)) {
-    const sid = (row as any).account.milksupplier_id;
-    if (!groupedTotals[sid]) {
-      groupedTotals[sid] = {
-        name: (row as any).account.milksupplier_name,
-        payable: 0, paid: 0, dueExtra: 0,
-        categories: [],
-      };
-    }
-    groupedTotals[sid].payable += (row as any).payable;
-    groupedTotals[sid].paid += (row as any).paid;
-    groupedTotals[sid].dueExtra += (row as any).net;
-    if (!groupedTotals[sid].categories.includes((row as any).account.category_name)) {
-      groupedTotals[sid].categories.push((row as any).account.category_name);
-    }
-  }
+interface Tool {
+  id: string;
+  name: string;
+  desc: string;
+  href: string;
+  icon: string;
+  color: string;
+  requiresLogin: boolean;
+  isUpcoming: boolean;
+  defaultOrder: number;
+  features?: string[];
 }
 
-const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const daysArray = Array.from({ length: 31 }, (_, i) => i + 1);
+const TOOLS: Tool[] = [
+  {
+    id: 'milk',
+    name: 'Milk Ledger',
+    desc: 'Log daily milk delivery (Doodh ka Hissab), rate, suppliers, monthly payments, and balances.',
+    href: '/milk',
+    icon: '🥛',
+    color: '#0284c7',
+    requiresLogin: true,
+    isUpcoming: false,
+    defaultOrder: 1
+  },
+  {
+    id: 'expenses',
+    name: 'Expense Manager',
+    desc: 'Categorize spendings, track monthly budget limits, and see total stats of your expenses.',
+    href: '/expenses',
+    icon: '💸',
+    color: '#e11d48',
+    requiresLogin: true,
+    isUpcoming: false,
+    defaultOrder: 2
+  },
+  {
+    id: 'notes',
+    name: 'Quick Notes',
+    desc: 'Capture thoughts, reminders, todo lists, and organize using tags and custom colors.',
+    href: '/notes',
+    icon: '📝',
+    color: '#d97706',
+    requiresLogin: true,
+    isUpcoming: false,
+    defaultOrder: 3
+  },
+  {
+    id: 'passwords',
+    name: 'Password Manager',
+    desc: 'Securely store logins, emails, website details, and generate secure passwords.',
+    href: '/passwords',
+    icon: '🔑',
+    color: '#4f46e5',
+    requiresLogin: true,
+    isUpcoming: false,
+    defaultOrder: 4
+  },
+  {
+    id: 'calculator',
+    name: 'Smart Calculator',
+    desc: 'Calculate basic arithmetic instantly. Includes calculation history and full keyboard support.',
+    href: '/calculator',
+    icon: '📊',
+    color: '#64748b',
+    requiresLogin: false,
+    isUpcoming: false,
+    defaultOrder: 5
+  },
+  {
+    id: 'age-calculator',
+    name: 'Age Calculator',
+    desc: 'Find your exact age in years/months/days, next birthday countdown, and zodiac sign.',
+    href: '/age-calculator',
+    icon: '🎂',
+    color: '#10b981',
+    requiresLogin: false,
+    isUpcoming: false,
+    defaultOrder: 6
+  },
+  {
+    id: 'cylinder',
+    name: 'Cylinder Tracker',
+    desc: 'Track gas cylinder refill intervals, usage duration, and calculate next booking due date.',
+    href: '#cylinder',
+    icon: '🔥',
+    color: '#ea580c',
+    requiresLogin: true,
+    isUpcoming: true,
+    defaultOrder: 7,
+    features: [
+      'Track gas cylinder delivery dates & prices',
+      'Estimate monthly/daily usage rate based on past logs',
+      'Receive push notifications before the estimated empty date',
+      'Calculate next booking date reminder'
+    ]
+  },
+  {
+    id: 'newspaper',
+    name: 'Newspaper Ledger',
+    desc: 'Track daily newspaper deliveries, calculate monthly dues, and handle vacation breaks.',
+    href: '#newspaper',
+    icon: '📰',
+    color: '#0891b2',
+    requiresLogin: true,
+    isUpcoming: true,
+    defaultOrder: 8,
+    features: [
+      'Log daily newspaper delivery status & monthly subscription rates',
+      'Mark suspension dates (vacations/holidays) to halt logging',
+      'Automated monthly bill adjustments for skipped days',
+      'Support for multiple regional and international newspaper agencies'
+    ]
+  },
+  {
+    id: 'tuition',
+    name: 'Tuition Fee Tracker',
+    desc: 'Manage multiple classes, student details, monthly fee dues, and track payment receipts.',
+    href: '#tuition',
+    icon: '🎓',
+    color: '#8b5cf6',
+    requiresLogin: true,
+    isUpcoming: true,
+    defaultOrder: 9,
+    features: [
+      'Manage list of student accounts, classes, and subjects',
+      'Configure billing models (per class, monthly flat rate, hourly)',
+      'Automated invoice generation & WhatsApp/Email friendly payment links',
+      'Log cash/digital receipt history'
+    ]
+  },
+  {
+    id: 'rent',
+    name: 'Rent Ledger',
+    desc: 'Maintain rent logs, track tenant/landlord agreements, and set due date reminders.',
+    href: '#rent',
+    icon: '🏠',
+    color: '#db2777',
+    requiresLogin: true,
+    isUpcoming: true,
+    defaultOrder: 10,
+    features: [
+      'Keep records of tenant profiles, monthly rent, and security deposit',
+      'Log repair costs, utilities billing, and deductions',
+      'Automated rent due reminders with invoice details',
+      'Generate download-friendly lease agreement checklists'
+    ]
+  },
+  {
+    id: 'subscriptions',
+    name: 'Subscription Tracker',
+    desc: 'Track Netflix, Spotify, gym, and SaaS renewals, with renewal alerts and expense sums.',
+    href: '#subscriptions',
+    icon: '💳',
+    color: '#c084fc',
+    requiresLogin: true,
+    isUpcoming: true,
+    defaultOrder: 11,
+    features: [
+      'List Netflix, Spotify, gym, domain names, and recurring tools',
+      'Sum monthly and annual subscription expenses in a simple graph',
+      'Color-coded dashboard showing renewals in the next 7 days',
+      'Auto-reminders before cards get charged'
+    ]
+  },
+  {
+    id: 'habits',
+    name: 'Habit Tracker',
+    desc: 'Build positive habits, track daily streaks, and view monthly consistency grids.',
+    href: '#habits',
+    icon: '⚡',
+    color: '#06b6d4',
+    requiresLogin: true,
+    isUpcoming: true,
+    defaultOrder: 12,
+    features: [
+      'Create customized daily, weekly, or flexible habits',
+      'Toggle completion statuses directly from the home dashboard',
+      'Analyze habit consistency via a GitHub-style activity contribution grid',
+      'Track current streak vs. longest historic streak statistics'
+    ]
+  }
+];
+
+let sortedTools = [...TOOLS];
+
+if (user) {
+  loggedIn = true;
+  userName = user.name || user.email.split('@')[0];
+  try {
+    const db = getDB(Astro);
+    const usageList = await getToolUsage(db, user.userId) as Array<{tool_id: string, use_count: number}>;
+    const usageMap = new Map<string, number>();
+    usageList.forEach(item => {
+      usageMap.set(item.tool_id, item.use_count);
+    });
+
+    sortedTools.sort((a, b) => {
+      const aCount = usageMap.get(a.id) || 0;
+      const bCount = usageMap.get(b.id) || 0;
+
+      if (aCount > 0 && bCount > 0) {
+        return bCount - aCount;
+      } else if (aCount > 0) {
+        return -1;
+      } else if (bCount > 0) {
+        return 1;
+      } else {
+        return a.defaultOrder - b.defaultOrder;
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching tool usage from database:', err);
+  }
+}
 ---
-{user ? (
-<Layout title={`${monthName} ${year} - Milk Hissab`}>
-  <style is:global>
-    .supplier-name:hover {
-      color: var(--accent-secondary);
-      text-decoration: underline;
-    }
-  </style>
-  <div class="container animate-fade-in pb-4">
-    <Header month={month} year={year} monthName={monthName} />
+<Layout title="MYDASHBOARD.CO.IN - manage everything. one dashboard.">
+  <div class="container animate-fade-in pb-12">
+    <!-- Hero / Header -->
+    <header class="dashboard-hero py-6 mb-6 text-center glass-card p-6">
+      {loggedIn ? (
+        <div>
+          <span class="badge mb-2">Workspace Hub</span>
+          <h1 class="h2 mb-1" style="font-weight: 800; letter-spacing: -0.02em;">Hello, <span class="text-accent">{userName}</span></h1>
+          <p class="text-muted text-xs max-w-sm mx-auto">
+            Quick launch your daily ledgers, tracker tools, notes, and password credentials.
+          </p>
+        </div>
+      ) : (
+        <div>
+          <span class="badge mb-2">Utility Workspace</span>
+          <h1 class="h2 mb-1" style="font-weight: 800; letter-spacing: -0.02em;">Welcome to <span class="text-accent">MYDASHBOARD.CO.IN</span></h1>
+          <p class="text-muted text-xs max-w-sm mx-auto">
+            manage everything. one dashboard.
+          </p>
+        </div>
+      )}
+    </header>
 
-    <!-- Filters -->
-    <div class="glass-card mb-4 p-3">
-      <div class="flex-between flex-wrap gap-3">
-        <div class="flex gap-2" style="align-items:center;">
-          <strong class="text-muted text-xs" style="text-transform:uppercase;letter-spacing:0.04em;">📅 Period:</strong>
-          <form method="GET" class="flex gap-2" id="filterForm">
-            <select name="m" class="form-select" style="width:auto;" onchange="this.form.submit()">
-              {monthNames.map((name, i) => (
-                <option value={i + 1} selected={i + 1 === month}>{name}</option>
-              ))}
-            </select>
-            <select name="y" class="form-select" style="width:auto;" onchange="this.form.submit()">
-              {Array.from({ length: (new Date().getFullYear() + 1) - 2020 + 1 }, (_, i) => new Date().getFullYear() + 1 - i).map(y => (
-                <option value={y} selected={y === year}>{y}</option>
-              ))}
-            </select>
-          </form>
-        </div>
-        <div class="flex gap-3 text-xs">
-          <span class="badge" style="background:rgba(0,212,170,0.15);color:var(--accent-secondary);">
-            <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent-secondary);margin-right:4px;"></span>
-            Auto
-          </span>
-          <span class="badge" style="background:rgba(240,160,64,0.15);color:var(--accent-warning);">
-            <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent-warning);margin-right:4px;"></span>
-            Manual
-          </span>
-        </div>
+    <!-- Search Tool Panel -->
+    <div class="glass-card mb-6 p-3">
+      <div class="flex gap-2">
+        <input type="text" id="toolSearch" class="form-control" placeholder="🔍 Search for available tools (e.g. milk, notes, age, calculator...)" autofocus>
       </div>
     </div>
 
-    <!-- Grand Matrix -->
-    <div class="glass-card" style="overflow:hidden;">
-      <div class="table-wrapper">
-        <table class="main-matrix">
-          <thead>
-            <tr>
-              <th class="sticky-col" style="text-align:left;padding-left:1rem;min-width:210px;">Supplier Details</th>
-              {daysArray.map(d => (
-                <th class={d <= totalDays ? '' : 'text-muted'} style={d > totalDays ? 'opacity:0.3;background:rgba(0,0,0,0.05);' : ''}>
-                  {d}
-                </th>
-              ))}
-              <th style="min-width:70px;">Total</th>
-              <th style="min-width:90px;color:#e0556a;">Payable</th>
-              <th style="min-width:90px;color:#00b894;">Paid</th>
-              <th style="min-width:100px;">Due/Extra</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.keys(matrix).length === 0 && (
-              <tr><td colspan="36" class="empty-state">No suppliers added for this month. Click "Add Supplier" to get started!</td></tr>
-            )}
-            {Object.entries(matrix).map(([aid, row]) => {
-              const acc = (row as any).account;
-              const entries = (row as any).entries;
-              return (
-                <tr>
-                  <td class="sticky-col supplier-edit-trigger" style="padding:0.6rem 0.75rem; cursor:pointer;" data-acc-id={acc.id}>
-                    <div class="fw-bold truncate supplier-name" style="max-width:180px;" title="Edit Configuration">
-                      <span style="font-size:0.8rem; margin-right:4px;">✏️</span>
-                      {acc.milksupplier_name}
-                      {!acc.active ? <span class="badge-sm" style="background:rgba(224,85,106,0.2);color:#e0556a;margin-left:4px;">Inactive</span> : ''}
-                    </div>
-                    <div class="text-muted text-xs flex gap-1" style="align-items:center;margin-top:2px;">
-                      <span class="badge-sm" style="background:var(--bg-base);opacity:0.8;">{acc.category_name}</span>
-                      <span>₹{Number(acc.rate).toFixed(2)}/kg</span>
-                      {acc.autogen_daily ? (
-                        <span>🕐 {acc.autogen_time} ({Number(acc.autogen_quantity)}kg)</span>
-                      ) : ''}
-                    </div>
-                  </td>
-                  {daysArray.map(d => {
-                    if (d > totalDays) {
-                      return <td style="background:rgba(0,0,0,0.04);"></td>;
-                    }
-                    const cell = entries[d];
-                    const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-                    const isAuto = cell.type === 'auto';
-                    const isManual = cell.type === 'manual';
-                    const cellColor = cell.q > 0 ? 'var(--text-primary)' : 'var(--text-muted)';
-                    return (
-                      <td class="day-cell" data-aid={aid} data-d={d} data-date={dateStr}>
-                        <div class="day-cell-value" style={`color: ${cellColor}`}>
-                          {cell.q > 0 ? cell.q : '-'}
-                        </div>
-                        {cell.q > 0 && isAuto && <div class="day-dot auto"></div>}
-                        {cell.q > 0 && isManual && <div class="day-dot manual"></div>}
-                      </td>
-                    );
-                  })}
-                  <td class="text-center fw-bold">{(row as any).totalQty}</td>
-                  <td class="text-center val-payable">₹{(row as any).payable.toFixed(2)}</td>
-                  <td class="text-center val-paid day-cell" data-aid={aid} style="background:rgba(0,180,148,0.05);">
-                    + {(row as any).paid > 0 ? `₹${(row as any).paid.toFixed(2)}` : '0'}
-                  </td>
-                  <td class="text-center fw-bold" style={(row as any).net < 0
-                    ? 'background:rgba(224,85,106,0.08);'
-                    : (row as any).net > 0 ? 'background:rgba(0,180,148,0.08);' : ''}>
-                    {(row as any).net < 0
-                      ? <span class="val-due">Due: ₹{Math.abs((row as any).net).toFixed(2)}</span>
-                      : (row as any).net > 0
-                        ? <span class="val-extra">Extra: ₹{(row as any).net.toFixed(2)}</span>
-                        : <span class="val-settled">Settled ✓</span>
-                    }
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+    <!-- Grid Header -->
+    <div class="flex-between mb-4">
+      <div>
+        <h2 class="h5 m-0">🛠️ Workspace Tools &amp; Utilities</h2>
+        <p class="text-muted text-xs">Listed in order of your usage frequency.</p>
       </div>
+      {loggedIn && (
+        <span class="text-xs text-muted" style="background: rgba(255,255,255,0.05); padding: 0.2rem 0.6rem; border-radius: 4px; border: 1px solid var(--border-color);">
+          🔒 Connected
+        </span>
+      )}
     </div>
 
-    {Object.keys(groupedTotals).length > 0 && (
-      <SupplierSummary groupedTotals={groupedTotals} />
-    )}
-
-    {paymentHistoryList && paymentHistoryList.length > 0 && (
-      <PaymentHistory payments={paymentHistoryList} />
-    )}
-  </div>
-
-  <AddAccountModal suppliers={suppliersList} categories={categoriesList} month={month} year={year} />
-  <EditQuantityModal />
-  <PaymentModal />
-  {pendingAutofills.length > 0 && <AutofillModal pending={pendingAutofills} />}
-
-</Layout>
-) : (
-<Layout title="Milk Hissab - Best Daily Milk Delivery & Expense Tracker">
-  <div class="landing-page animate-fade-in">
-    <!-- Hero Section -->
-    <section class="hero-section py-20 text-center">
-      <div class="container">
-        <div class="badge mb-6" style="background:var(--accent-primary); color:white; padding: 0.6rem 1.2rem; border-radius: 50px; font-weight: 600;">✨ Your All-in-One Personal Ledger</div>
-        <h1 class="display-1 mb-6" style="font-size: clamp(2.5rem, 8vw, 4.5rem); font-weight: 800; line-height: 1.1; letter-spacing: -0.02em;">
-          Simplify Your <span class="text-accent">Daily Hissab</span>
-        </h1>
-        <p class="text-lg text-muted mb-10 mx-auto" style="max-width: 800px; font-size: 1.25rem; line-height: 1.6;">
-          Track your daily milk delivery (Doodh ka Hissab), manage monthly expenses, capture ideas, and store passwords securely. 
-          The ultimate productivity companion for your modern lifestyle.
+    <!-- Tools Grid -->
+    <div class="tools-grid-container">
+      <div class="tools-grid" id="tools-grid">
+        {sortedTools.map(tool => {
+          const glowColor = tool.color + '25'; // Hex alpha (approx 15% opacity)
+          return (
+            <div 
+              class={`glass-card tool-card ${tool.isUpcoming ? 'upcoming' : ''}`}
+              data-tool-id={tool.id}
+              data-default-order={tool.defaultOrder}
+              data-upcoming={tool.isUpcoming ? 'true' : 'false'}
+              data-features={tool.features ? JSON.stringify(tool.features) : ''}
+              data-requires-login={tool.requiresLogin ? 'true' : 'false'}
+              style={`--tool-color: ${tool.color}; --tool-color-glow: ${glowColor};`}
+            >
+              <div class="tool-icon" style={`color: ${tool.color};`}>
+                {tool.icon}
+              </div>
+              <div class="tool-content">
+                <h3 class="h5 mb-1 tool-title flex-between">
+                  <span>{tool.name}</span>
+                  <span class="tool-status flex gap-1">
+                    {tool.isUpcoming ? (
+                      <span class="badge-sm badge-coming-soon">Upcoming</span>
+                    ) : tool.requiresLogin ? (
+                      <span class="badge-sm badge-locked" title="Requires login">🔒 Lock</span>
+                    ) : (
+                      <span class="badge-sm badge-free">Utility</span>
+                    )}
+                  </span>
+                </h3>
+                <p class="text-xs text-muted tool-desc leading-relaxed">
+                  {tool.desc}
+                </p>
+                <div class="tool-footer mt-4 text-end">
+                  {tool.isUpcoming ? (
+                    <button class="btn btn-sm btn-secondary btn-preview-tool" style="width: 100%; justify-content: center;">
+                      Preview Features 🚀
+                    </button>
+                  ) : (
+                    <a href={tool.href} class="btn btn-sm btn-primary btn-launch-tool" style="width: 100%; justify-content: center; background: var(--tool-color); border-color: var(--tool-color);">
+                      Launch Tool →
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    <!-- Search Engine Optimization (SEO) Content Panel -->
+    <article class="glass-card p-6 mt-8" style="margin-top: 2rem;">
+      <header class="mb-4">
+        <h2 class="h4 text-accent mb-2" style="font-weight: 800;">MYDASHBOARD.CO.IN — Manage Everything. One Dashboard.</h2>
+        <p class="text-xs text-muted leading-relaxed">
+          Welcome to the ultimate personal utility workspace and daily bookkeeping portal. Built mobile-first for high performance, security, and convenience, <strong>MYDASHBOARD.CO.IN</strong> consolidates your essential tracking logs, secure credentials vaults, quick notes, and utility calculations into a single, lightning-fast workspace.
         </p>
-        <div class="flex gap-4 justify-center flex-wrap">
-          <a href="/register" class="btn btn-primary btn-lg" style="border-radius: var(--radius-md);">Get Started Free</a>
-          <a href="/login" class="btn btn-secondary btn-lg" style="border-radius: var(--radius-md);">Login</a>
+      </header>
+
+      <div class="row gap-4" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); display: grid;">
+        <div>
+          <h3 class="h6 fw-bold mb-2">🥛 Daily Milk Ledger (Doodh ka Hissab)</h3>
+          <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+            Keep an accurate digital register of your daily milk deliveries. Record morning/evening quantities, configure custom rates per supplier, automatically carry forward balances, and manage monthly payouts. Say goodbye to manual calendar logging and complex calculations.
+          </p>
+        </div>
+
+        <div>
+          <h3 class="h6 fw-bold mb-2">💸 Expense Manager &amp; Budget Tracker</h3>
+          <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+            Track your daily expenses and monitor monthly spending habits. Categorize budgets, see real-time breakdowns of where your money goes, and ensure you stay within your limits. Our secure structure provides private expense logging on the Cloudflare D1 database.
+          </p>
+        </div>
+
+        <div>
+          <h3 class="h6 fw-bold mb-2">📝 Quick Sticky Notes &amp; Notepad</h3>
+          <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+            Capture ideas, compose draft reminders, and compile daily to-do checklists on the fly. Organize your digital sticky notes with customizable colors and searchable hashtags. Reachable, fast, and structured for one-handed entry on any mobile phone.
+          </p>
+        </div>
+
+        <div>
+          <h3 class="h6 fw-bold mb-2">🔑 Password Manager &amp; Secure Vault</h3>
+          <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+            Protect your online presence with a built-in credentials manager. Securely generate complex, random passwords, store website logins, and filter credentials by categories. Safe and encrypted with secure edge routing protocols.
+          </p>
+        </div>
+
+        <div>
+          <h3 class="h6 fw-bold mb-2">📊 Smart Calculations &amp; Age Calculator</h3>
+          <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+            Access direct calculators without logging in. The Online Calculator handles immediate arithmetic on a sleek grid. The Age Calculator returns your exact age in years, months, and days, details your zodiac sign, and tracks your next birthday countdown.
+          </p>
+        </div>
+
+        <div>
+          <h3 class="h6 fw-bold mb-2">🚀 Upcoming Trackers &amp; Voter Roadmap</h3>
+          <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+            Shape the future of our multi-utility dashboard. Vote to expedite upcoming features, including the <strong>Gas Cylinder Delivery Tracker</strong>, regional <strong>Newspaper Ledger</strong>, student <strong>Tuition Fee Tracker</strong>, and monthly <strong>Rent Ledger</strong>.
+          </p>
         </div>
       </div>
-    </section>
+    </article>
+  </div>
 
-    <!-- Features Grid -->
-    <section class="features-section py-24 bg-surface/20">
-      <div class="container">
-        <div class="text-center mb-16">
-          <h2 class="h1 mb-4">Powerful Features for Everyday Life</h2>
-          <p class="text-muted text-lg">Stop juggling multiple apps. Everything you need is right here.</p>
+  <!-- Revenue Generation Ad Banner Placeholder -->
+  <div class="container pb-6">
+    <div class="ad-banner glass-card p-4 text-center">
+      <span class="ad-tag">SPONSORED ADVERTISEMENT</span>
+      <div class="ad-box">
+        <span class="ad-icon">💰</span>
+        <div>
+          <p class="text-xs fw-bold" style="color: var(--accent-primary); margin: 0;">Advertisement Space Reserved</p>
+          <p class="text-xs text-muted" style="margin: 2px 0 0 0;">Earn revenue by placing Google AdSense, Ezoic, or custom banners here later.</p>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dynamic Upcoming Tool Modal -->
+  <div id="upcomingModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="upcomingTitle">🚀 Coming Soon</h3>
+        <button class="modal-close" id="closeUpcomingBtn">&times;</button>
+      </div>
+      <div class="text-center p-2">
+        <div id="upcomingIcon" style="font-size: 3.5rem; margin-bottom: 1rem;">🔥</div>
+        <p id="upcomingDesc" class="text-muted text-sm mb-4">Details about the upcoming tracker...</p>
         
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-12 max-w-5xl mx-auto">
-          <!-- Feature 1: Milk -->
-          <div class="glass-card p-8 md:p-10 hover:translate-y-[-8px] transition-transform flex gap-6 md:gap-8 items-start">
-            <div class="feature-icon mt-1" style="font-size: 2.5rem; line-height: 1;">🥛</div>
-            <div>
-              <h3 class="h5 mb-2" style="font-weight: 700;">Milk Tracker</h3>
-              <p class="text-sm text-muted leading-relaxed">No more paper cards! Log daily milk intake, manage suppliers, and calculate monthly totals automatically.</p>
-            </div>
-          </div>
+        <div class="highlight-box mb-4 text-start">
+          <h4 class="h6 mb-2 fw-bold text-xs uppercase" style="letter-spacing:0.04em; color: var(--accent-primary);">💡 Planned Features:</h4>
+          <ul id="upcomingFeatures" class="text-xs text-secondary space-y-2" style="padding-left: 1.2rem; list-style-type: disc;">
+            <li>Feature details...</li>
+          </ul>
+        </div>
 
-          <!-- Feature 2: Expenses -->
-          <div class="glass-card p-8 md:p-10 hover:translate-y-[-8px] transition-transform flex gap-6 md:gap-8 items-start">
-            <div class="feature-icon mt-1" style="font-size: 2.5rem; line-height: 1;">💸</div>
-            <div>
-              <h3 class="h5 mb-2" style="font-weight: 700;">Expense Manager</h3>
-              <p class="text-sm text-muted leading-relaxed">Categorize your spending, track budgets, and see where your money goes. Perfect for monthly tracking.</p>
-            </div>
-          </div>
-
-          <!-- Feature 3: Notes -->
-          <div class="glass-card p-8 md:p-10 hover:translate-y-[-8px] transition-transform flex gap-6 md:gap-8 items-start">
-            <div class="feature-icon mt-1" style="font-size: 2.5rem; line-height: 1;">📝</div>
-            <div>
-              <h3 class="h5 mb-2" style="font-weight: 700;">Quick Notes</h3>
-              <p class="text-sm text-muted leading-relaxed">Capture thoughts, checklists, and reminders. Use color-coded notes and tags to stay organized effortlessly.</p>
-            </div>
-          </div>
-
-          <!-- Feature 4: Passwords -->
-          <div class="glass-card p-8 md:p-10 hover:translate-y-[-8px] transition-transform flex gap-6 md:gap-8 items-start">
-            <div class="feature-icon mt-1" style="font-size: 2.5rem; line-height: 1;">🔑</div>
-            <div>
-              <h3 class="h5 mb-2" style="font-weight: 700;">Secure Passwords</h3>
-              <p class="text-sm text-muted leading-relaxed">Store your credentials securely. Includes a generator and easy copy-to-clipboard functionality.</p>
-            </div>
-          </div>
+        <div class="flex gap-2 justify-center">
+          <button class="btn btn-secondary btn-sm" id="closeUpcomingBtn2">Close</button>
+          <button class="btn btn-primary btn-sm" id="btnVoteTool">👍 Vote for this Tool</button>
+        </div>
+        <div id="voteAlert" class="alert alert-success mt-3" style="display:none;">
+          🎉 Your vote has been recorded! We are expediting the development of this tool.
         </div>
       </div>
-    </section>
-
-    <!-- SEO Content Section -->
-    <section class="seo-content-section py-24">
-      <div class="container">
-        <div class="glass-card p-12 md:p-20">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-16 items-center">
-            <div class="px-4">
-              <h2 class="h2 mb-8 max-w-sm">Built for Modern Convenience</h2>
-              <div class="space-y-6">
-                <div class="flex gap-4 items-center">
-                  <div class="badge" style="background:var(--accent-primary); width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:50%; flex-shrink:0; font-size: 1rem; color: white;">✓</div>
-                  <div>
-                    <h4 class="h5 mb-1">PWA Support</h4>
-                    <p class="text-sm text-muted">Install Milk Hissab on your Android or iOS device. It feels like a native app and works offline.</p>
-                  </div>
-                </div>
-                <div class="flex gap-4 items-center">
-                  <div class="badge" style="background:var(--accent-primary); width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:50%; flex-shrink:0; font-size: 1rem; color: white;">✓</div>
-                  <div>
-                    <h4 class="h5 mb-1">Fast & Reliable</h4>
-                    <p class="text-sm text-muted">Hosted on Cloudflare's global edge network. Your data is always available and lightning fast.</p>
-                  </div>
-                </div>
-                <div class="flex gap-4 items-center">
-                  <div class="badge" style="background:var(--accent-primary); width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:50%; flex-shrink:0; font-size: 1rem; color: white;">✓</div>
-                  <div>
-                    <h4 class="h5 mb-1">Privacy First</h4>
-                    <p class="text-sm text-muted">Your data is stored securely and is only accessible to you. We never share your personal information.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="text-center relative">
-              <div class="display-1" style="font-size: 10rem; opacity: 0.1;">📱</div>
-              <div class="glass-card p-6 inline-block transform rotate-3 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                <p class="text-xl fw-bold text-accent">Digital Diary</p>
-                <p class="text-xs text-muted">v1.5 Update Now Live</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Footer CTA -->
-    <section class="cta-section py-24 text-center bg-accent/5">
-      <div class="container">
-        <h2 class="h1 mb-8">Ready to Digitalize Your Life?</h2>
-        <p class="text-lg text-muted mb-10 mx-auto" style="max-width: 600px;">Join thousands of users who have simplified their daily routines with Milk Hissab.</p>
-        <a href="/register" class="btn btn-primary btn-lg" style="border-radius: var(--radius-lg); box-shadow: 0 10px 30px rgba(0, 135, 108, 0.2);">Create Your Free Account</a>
-      </div>
-    </section>
+    </div>
   </div>
 </Layout>
-)}
+
+<style is:global>
+  /* Sponsored Ad Banner */
+  .ad-banner {
+    border: 1px dashed rgba(13, 148, 136, 0.25);
+    background: rgba(13, 148, 136, 0.02);
+    border-radius: var(--radius-md);
+    position: relative;
+    overflow: hidden;
+    margin-top: 2rem;
+  }
+  [data-theme="light"] .ad-banner {
+    border-color: rgba(13, 148, 136, 0.4);
+    background: rgba(13, 148, 136, 0.04);
+  }
+  .ad-tag {
+    position: absolute;
+    top: 0; left: 50%; transform: translateX(-50%);
+    font-size: 0.55rem;
+    font-weight: 800;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    background: var(--border-color);
+    padding: 0.15rem 0.5rem;
+    border-radius: 0 0 4px 4px;
+    white-space: nowrap;
+  }
+  .ad-box {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 0.55rem 0;
+  }
+  .ad-icon {
+    font-size: 1.5rem;
+  }
+
+  /* Tools Grid specific styles */
+  .tools-grid-container {
+    width: 100%;
+  }
+
+  .tools-grid {
+    display: grid;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
+
+  @media (min-width: 640px) {
+    .tools-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .tools-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .tool-card {
+    display: flex;
+    flex-direction: column;
+    padding: 1.5rem;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.3s, box-shadow 0.3s;
+    border-color: var(--border-color);
+  }
+
+  /* Accent line on top of each card */
+  .tool-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: var(--tool-color);
+    opacity: 0.8;
+  }
+
+  .tool-card:hover {
+    transform: translateY(-6px);
+    border-color: var(--tool-color);
+    box-shadow: 0 12px 30px var(--tool-color-glow);
+  }
+
+  .tool-icon {
+    font-size: 2.2rem;
+    margin-bottom: 1rem;
+    width: 50px;
+    height: 50px;
+    border-radius: var(--radius-lg);
+    background: rgba(255, 255, 255, 0.03);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-subtle);
+  }
+
+  [data-theme="light"] .tool-icon {
+    background: rgba(0, 0, 0, 0.02);
+  }
+
+  .tool-content {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    justify-content: space-between;
+  }
+
+  .tool-title {
+    font-weight: 700;
+  }
+
+  .tool-desc {
+    flex-grow: 1;
+    margin-bottom: 1rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+
+  .badge-sm {
+    font-size: 0.65rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+
+  .badge-coming-soon {
+    background: rgba(234, 88, 12, 0.15);
+    color: #ea580c;
+    border: 1px solid rgba(234, 88, 12, 0.2);
+  }
+
+  .badge-locked {
+    background: rgba(240, 160, 64, 0.15);
+    color: var(--accent-warning);
+    border: 1px solid rgba(240, 160, 64, 0.2);
+  }
+
+  .badge-free {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.2);
+  }
+
+  .btn-launch-tool {
+    color: white !important;
+  }
+  .btn-launch-tool:hover {
+    filter: brightness(1.1);
+    box-shadow: 0 4px 12px var(--tool-color-glow);
+  }
+</style>
+
+
 
 <script>
-  // ─── Modal Helpers ───
-  function showModal(id) { document.getElementById(id).style.display = 'flex'; }
+  // ─── LocalStorage Usage Sorting for Anonymous Users ───
+  (function() {
+    const isLoggedIn = document.documentElement.getAttribute('data-logged-in') === 'true';
+    if (isLoggedIn) return;
 
-  // ─── Main Matrix Events (Delegated) ───
-  document.querySelector('.main-matrix')?.addEventListener('click', function(e) {
-    const target = e.target as HTMLElement;
-    
-    // 1. Quantity Modal (Daily Entry)
-    const qtyCell = target.closest('.day-cell[data-date]') as HTMLElement;
-    if (qtyCell) {
-      const dateStr = qtyCell.dataset.date;
-      const aid = qtyCell.dataset.aid;
-      const val = qtyCell.querySelector('.day-cell-value')?.textContent?.trim() || '-';
-      document.getElementById('qtyDateLabel').textContent = dateStr;
-      (document.getElementById('qtyAccId') as HTMLInputElement).value = aid;
-      (document.getElementById('qtyDate') as HTMLInputElement).value = dateStr;
-      (document.getElementById('qtyInput') as HTMLInputElement).value = val === '-' ? '' : val;
-      showModal('qtyModal');
-      return;
-    }
-
-    // 2. Payment Modal (Add Payment from Matrix)
-    const payCell = target.closest('.val-paid.day-cell') as HTMLElement;
-    if (payCell) {
-      const aid = payCell.dataset.aid;
-      const frm = document.getElementById('payForm') as HTMLFormElement;
-      frm.reset();
-      (document.getElementById('payPaymentId') as HTMLInputElement).value = '0';
-      (document.getElementById('payAccId') as HTMLInputElement).value = aid;
-      (frm.querySelector('input[name="action"]') as HTMLInputElement).value = 'add_payment';
-      document.getElementById('payModalTitle').textContent = 'Add Payment';
-      showModal('payModal');
-      return;
-    }
-
-    // 3. Edit Supplier Config
-    const trigger = target.closest('.supplier-edit-trigger') as HTMLElement;
-    if (trigger) {
-      const accId = parseInt(trigger.dataset.accId || '0');
-      const accounts = (window as any).__accounts || [];
-      const acc = accounts.find((a: any) => a.id == accId);
-      
-      if (!acc) {
-        console.warn('Account not found for ID:', accId);
-        return;
-      }
-      
-      document.getElementById('accModalTitle')!.textContent = 'Edit Supplier Config';
-      (document.getElementById('accAccountId') as HTMLInputElement).value = String(acc.id);
-      (document.getElementById('accSupplierId') as HTMLSelectElement).value = String(acc.milksupplier_id);
-      document.getElementById('accSupplierId')!.dispatchEvent(new Event('change'));
-      (document.getElementById('accCategory') as HTMLSelectElement).value = String(acc.category_id);
-      (document.getElementById('accRate') as HTMLInputElement).value = String(acc.rate);
-      (document.getElementById('accAutoQty') as HTMLInputElement).value = acc.autogen_quantity ? String(acc.autogen_quantity) : '';
-      (document.getElementById('accAutoTime') as HTMLInputElement).value = acc.autogen_time || '07:30';
-      (document.getElementById('accStart') as HTMLInputElement).value = acc.start_date || '';
-      (document.getElementById('accEnd') as HTMLInputElement).value = acc.end_date || '';
-      (document.getElementById('accActive') as HTMLInputElement).checked = acc.active == 1;
-      
-      document.getElementById('accDelBtn')!.style.display = '';
-      document.getElementById('supDelBtn')!.style.display = '';
-      showModal('addAccountModal');
-      return;
-    }
-  });
-
-  // ─── Global Click Events (Delegated) ───
-  document.addEventListener('click', function(e) {
-    const target = e.target as HTMLElement;
-
-    // Close modals on overlay click
-    if (target.classList.contains('modal-overlay')) {
-      target.style.display = 'none';
-      return;
-    }
-
-    // Edit Payment (from Payment History)
-    const editPayBtn = target.closest('.edit-pay-btn') as HTMLElement;
-    if (editPayBtn) {
-      try {
-        const pay = JSON.parse(editPayBtn.getAttribute('data-pay'));
-        const frm = document.getElementById('payForm') as HTMLFormElement;
-        if (!frm) return;
-        
-        (frm.querySelector('input[name="action"]') as HTMLInputElement).value = 'edit_payment';
-        (document.getElementById('payPaymentId') as HTMLInputElement).value = String(pay.id);
-        (document.getElementById('payAccId') as HTMLInputElement).value = String(pay.account_id);
-        (frm.querySelector('input[name="amount"]') as HTMLInputElement).value = String(pay.amount);
-        (frm.querySelector('input[name="payment_date"]') as HTMLInputElement).value = pay.payment_date;
-        (frm.querySelector('input[name="note"]') as HTMLInputElement).value = pay.note || '';
-        document.getElementById('payModalTitle').textContent = 'Edit Payment';
-        showModal('payModal');
-      } catch (err) {
-        console.error('Failed to parse payment data:', err);
-      }
-      return;
-    }
-
-    // Delete Payment
-    const delPayBtn = target.closest('.del-pay-btn') as HTMLElement;
-    if (delPayBtn) {
-      const payId = delPayBtn.getAttribute('data-id');
-      if (confirm('Delete this payment permanently?')) {
-        const fd = new FormData();
-        fd.append('action', 'delete_payment');
-        fd.append('payment_id', payId);
-        fetch('/api/milk', { method: 'POST', body: fd })
-          .then(res => res.json())
-          .then(d => {
-            if (d.success) window.location.reload();
-            else alert(d.message || 'Failed.');
-          })
-          .catch(() => alert('Network error.'));
-      }
-      return;
-    }
-  });
-
-  // ─── Form Submissions ───
-  document.getElementById('qtyForm')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    await fetch('/api/milk', { method: 'POST', body: new FormData(e.target as HTMLFormElement) });
-    window.location.reload();
-  });
-
-  document.getElementById('payForm')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    await fetch('/api/milk', { method: 'POST', body: new FormData(e.target as HTMLFormElement) });
-    window.location.reload();
-  });
-
-  document.getElementById('accForm')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const btn = (e.target as HTMLFormElement).querySelector('button[type="submit"]') as HTMLButtonElement;
-    const alertBox = document.getElementById('accAlert');
-    if (btn) btn.disabled = true;
     try {
-      const res = await fetch('/api/milk', { method: 'POST', body: new FormData(e.target as HTMLFormElement) });
-      const d = await res.json();
-      if (d.success) window.location.reload();
-      else if (alertBox) { alertBox.textContent = d.message || 'Failed.'; alertBox.style.display = 'block'; }
-    } catch { if (alertBox) { alertBox.textContent = 'Network error.'; alertBox.style.display = 'block'; } }
-    if (btn) btn.disabled = false;
-  });
+      const localCounts = JSON.parse(localStorage.getItem('tool_usage_local') || '{}');
+      const grid = document.getElementById('tools-grid');
+      if (!grid) return;
 
-  // ─── Account & Supplier Management ───
-  document.querySelector('[data-open="addAccountModal"]')?.addEventListener('click', function() {
-    document.getElementById('accModalTitle').textContent = 'New Milk Supplier';
-    const frm = document.getElementById('accForm') as HTMLFormElement;
-    if (frm) frm.reset();
-    (document.getElementById('accAccountId') as HTMLInputElement).value = '0';
-    (document.getElementById('accSupplierId') as HTMLSelectElement).value = '0';
-    document.getElementById('accSupplierId').dispatchEvent(new Event('change'));
-    document.getElementById('accDelBtn').style.display = 'none';
-    document.getElementById('supDelBtn').style.display = 'none';
-    showModal('addAccountModal');
-  });
+      const cards = Array.from(grid.querySelectorAll('.tool-card')) as HTMLElement[];
+      cards.sort((a, b) => {
+        const aId = a.dataset.toolId || '';
+        const bId = b.dataset.toolId || '';
+        const aCount = localCounts[aId] || 0;
+        const bCount = localCounts[bId] || 0;
+        const aOrder = parseInt(a.dataset.defaultOrder || '99');
+        const bOrder = parseInt(b.dataset.defaultOrder || '99');
 
-  document.getElementById('accDelBtn')?.addEventListener('click', async () => {
-    if (!confirm('WARNING: Delete ALL entries and payments for this supplier THIS MONTH?')) return;
-    const fd = new FormData();
-    fd.append('action', 'delete_account');
-    fd.append('account_id', (document.getElementById('accAccountId') as HTMLInputElement).value);
-    const res = await fetch('/api/milk', { method: 'POST', body: fd });
-    const d = await res.json();
-    if (d.success) window.location.reload();
-    else alert(d.message || 'Failed.');
-  });
+        if (aCount > 0 && bCount > 0) {
+          return bCount - aCount;
+        } else if (aCount > 0) {
+          return -1;
+        } else if (bCount > 0) {
+          return 1;
+        } else {
+          return aOrder - bOrder;
+        }
+      });
 
-  document.getElementById('supDelBtn')?.addEventListener('click', async () => {
-    if (!confirm('CRITICAL: PERMANENTLY delete this supplier and ALL their data?')) return;
-    const fd = new FormData();
-    fd.append('action', 'delete_supplier');
-    fd.append('supplier_id', (document.getElementById('accSupplierId') as HTMLSelectElement).value);
-    const res = await fetch('/api/milk', { method: 'POST', body: fd });
-    const d = await res.json();
-    if (d.success) window.location.reload();
-    else alert(d.message || 'Failed.');
-  });
+      // Re-append cards to grid in sorted order
+      cards.forEach(card => grid.appendChild(card));
+    } catch (e) {
+      console.error('Error executing client-side sorting:', e);
+    }
+  })();
 
-  // Set today's date for payment date input
-  const payDateInput = document.getElementById('payDate') as HTMLInputElement;
-  if (payDateInput && !payDateInput.value) {
-    const now = new Date();
-    payDateInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  }
-</script>
-<script define:vars={{ accounts, pendingAutofills }}>
-  window.__accounts = accounts;
-  window.__pendingAutofills = pendingAutofills;
-
-  // Autofill confirmation
-  if (pendingAutofills && pendingAutofills.length > 0) {
-    document.getElementById('autofillModal').style.display = 'flex';
-    document.getElementById('confirmAutofillBtn')?.addEventListener('click', async function() {
-      const btn = this;
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> Auto-filling...';
-      for (const af of pendingAutofills) {
-        const fd = new FormData();
-        fd.append('action', 'bulk_autofill');
-        fd.append('account_id', String(af.account_id));
-        await fetch('/api/milk', { method: 'POST', body: fd });
+  // ─── Real-Time Search Filtering for Tools ───
+  const toolSearch = document.getElementById('toolSearch') as HTMLInputElement;
+  toolSearch?.addEventListener('input', () => {
+    const q = toolSearch.value.toLowerCase().trim();
+    document.querySelectorAll('.tool-card').forEach(card => {
+      const c = card as HTMLElement;
+      const title = c.querySelector('.tool-title')?.textContent?.toLowerCase() || '';
+      const desc = c.querySelector('.tool-desc')?.textContent?.toLowerCase() || '';
+      if (title.includes(q) || desc.includes(q)) {
+        c.style.display = 'flex';
+      } else {
+        c.style.display = 'none';
       }
-      window.location.reload();
     });
+  });
+
+  // ─── Upcoming Tools Modal Interactivity ───
+  const upcomingModal = document.getElementById('upcomingModal') as HTMLDivElement;
+  const upcomingTitle = document.getElementById('upcomingTitle') as HTMLHeadingElement;
+  const upcomingIcon = document.getElementById('upcomingIcon') as HTMLDivElement;
+  const upcomingDesc = document.getElementById('upcomingDesc') as HTMLParagraphElement;
+  const upcomingFeatures = document.getElementById('upcomingFeatures') as HTMLUListElement;
+  const voteAlert = document.getElementById('voteAlert') as HTMLDivElement;
+  const btnVoteTool = document.getElementById('btnVoteTool') as HTMLButtonElement;
+  
+  let currentActiveToolId = '';
+
+  function openUpcomingModal(card: HTMLElement) {
+    const toolId = card.dataset.toolId || '';
+    const toolName = card.querySelector('.tool-title span')?.textContent || '';
+    const toolIcon = card.querySelector('.tool-icon')?.textContent || '';
+    const toolDesc = card.querySelector('.tool-desc')?.textContent || '';
+    const featuresStr = card.dataset.features || '[]';
+    
+    currentActiveToolId = toolId;
+    
+    if (upcomingTitle) upcomingTitle.textContent = `🚀 Upcoming: ${toolName}`;
+    if (upcomingIcon) upcomingIcon.textContent = toolIcon;
+    if (upcomingDesc) upcomingDesc.textContent = toolDesc;
+    
+    if (upcomingFeatures) {
+      try {
+        const features = JSON.parse(featuresStr);
+        if (Array.isArray(features) && features.length > 0) {
+          upcomingFeatures.innerHTML = features.map(f => `<li>${f}</li>`).join('');
+        } else {
+          upcomingFeatures.innerHTML = '<li>Details regarding this ledger tool are currently being finalized.</li>';
+        }
+      } catch {
+        upcomingFeatures.innerHTML = '<li>Details regarding this ledger tool are currently being finalized.</li>';
+      }
+    }
+
+    // Reset Vote State
+    if (voteAlert) voteAlert.style.display = 'none';
+    if (btnVoteTool) {
+      btnVoteTool.disabled = false;
+      btnVoteTool.textContent = '👍 Vote for this Tool';
+    }
+
+    if (upcomingModal) upcomingModal.style.display = 'flex';
   }
+
+  // Bind click event on upcoming preview buttons
+  document.getElementById('tools-grid')?.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('.btn-preview-tool');
+    if (btn) {
+      const card = btn.closest('.tool-card') as HTMLElement;
+      if (card) {
+        openUpcomingModal(card);
+      }
+    }
+  });
+
+  // Close modals
+  const closeModal = () => {
+    if (upcomingModal) upcomingModal.style.display = 'none';
+  };
+  document.getElementById('closeUpcomingBtn')?.addEventListener('click', closeModal);
+  document.getElementById('closeUpcomingBtn2')?.addEventListener('click', closeModal);
+
+  // Overlay Click closes modal
+  upcomingModal?.addEventListener('click', (e) => {
+    if (e.target === upcomingModal) {
+      closeModal();
+    }
+  });
+
+  // Vote Button Interactivity
+  btnVoteTool?.addEventListener('click', () => {
+    if (btnVoteTool) {
+      btnVoteTool.disabled = true;
+      btnVoteTool.textContent = 'Recording Vote...';
+    }
+
+    // Simulate saving the vote
+    setTimeout(() => {
+      // Record vote in local storage so it persists locally
+      try {
+        const votes = JSON.parse(localStorage.getItem('tool_votes') || '{}');
+        votes[currentActiveToolId] = (votes[currentActiveToolId] || 0) + 1;
+        localStorage.setItem('tool_votes', JSON.stringify(votes));
+      } catch (e) {}
+
+      if (btnVoteTool) btnVoteTool.textContent = 'Voted ✓';
+      if (voteAlert) voteAlert.style.display = 'block';
+    }, 800);
+  });
 </script>

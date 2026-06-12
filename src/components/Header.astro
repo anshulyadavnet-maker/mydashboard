@@ -16,13 +16,8 @@ const { month, year, monthName } = Astro.props;
     </p>
   </div>
   <div class="flex gap-2">
-    <button class="btn btn-primary btn-sm" data-open="addAccountModal">
+    <button class="btn btn-primary" data-open="addAccountModal">
       + Add Supplier
     </button>
-    <form action="/api/auth/logout" method="POST" style="margin:0;">
-      <button class="btn btn-sm" type="submit">
-        🚪 Logout
-      </button>
-    </form>
   </div>
 </div>

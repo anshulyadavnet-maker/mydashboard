@@ -1,0 +1,603 @@
+---
+import Layout from '../components/Layout.astro';
+import Header from '../components/Header.astro';
+import SupplierSummary from '../components/SupplierSummary.astro';
+import PaymentHistory from '../components/PaymentHistory.astro';
+import AddAccountModal from '../components/AddAccountModal.astro';
+import EditQuantityModal from '../components/EditQuantityModal.astro';
+import PaymentModal from '../components/PaymentModal.astro';
+import AutofillModal from '../components/AutofillModal.astro';
+import { getDB } from '../lib/db';
+import {
+  getAccounts, getSuppliers, getCategories, getEntriesForAccount,
+  getPaymentsForAccount, getPaymentHistory, checkAccountExists,
+  createAccount, recordToolUsage
+} from '../lib/db';
+import {
+  daysInMonth, previousMonth, buildMatrixRow, detectMissingAutofills,
+  getCarryForwardData,
+} from '../lib/milk';
+
+const user = Astro.locals.user;
+const isLoggedIn = !!user;
+
+let month, year, totalDays, monthName, accounts, suppliersList, categoriesList, paymentHistoryList;
+let matrix: Record<string, any> = {};
+let pendingAutofills: any[] = [];
+let groupedTotals: Record<string, any> = {};
+
+if (isLoggedIn) {
+  const db = getDB(Astro);
+
+  // Record tool usage
+  await recordToolUsage(db, user.userId, 'milk');
+
+  const url = new URL(Astro.request.url);
+  month = parseInt(url.searchParams.get('m') || '');
+  year = parseInt(url.searchParams.get('y') || '');
+
+  const now = new Date();
+  if (!month || month < 1 || month > 12) month = now.getMonth() + 1;
+  if (!year) year = now.getFullYear();
+
+  totalDays = daysInMonth(year, month);
+  const monthNamesList = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  monthName = monthNamesList[month - 1];
+
+  // Carry forward active accounts from previous month
+  const { year: prevYear, month: prevMonth } = previousMonth(year, month);
+  const prevAccountRows = await db.prepare(
+    'SELECT * FROM milk_accounts WHERE user_id = ? AND active = 1 AND year = ? AND month = ?'
+  ).bind(user.userId, prevYear, prevMonth).all();
+  const carryForwardData = getCarryForwardData(prevAccountRows.results, year, month);
+  for (const cf of carryForwardData) {
+    const exists = await checkAccountExists(db, user.userId, cf.supplierId, cf.categoryId, cf.autogenTime, year, month);
+    if (!exists) {
+      await createAccount(db, cf);
+    }
+  }
+
+  // Fetch current month data
+  accounts = await getAccounts(db, user.userId, year, month);
+  suppliersList = await getSuppliers(db, user.userId);
+  categoriesList = await getCategories(db, user.userId);
+  paymentHistoryList = await getPaymentHistory(db, user.userId, year, month);
+
+  // Build matrix
+  for (const acc of accounts) {
+    const dbEntries = await getEntriesForAccount(db, acc.id, year, month);
+    const totalPayments = Number(await getPaymentsForAccount(db, acc.id)) || 0;
+    const row = buildMatrixRow(acc, dbEntries, totalDays, totalPayments);
+    matrix[acc.id] = row;
+    const { pending } = detectMissingAutofills(acc, dbEntries, year, month, totalDays);
+    if (pending) pendingAutofills.push(pending);
+  }
+
+  // Group by supplier for summary
+  for (const [aid, row] of Object.entries(matrix)) {
+    const sid = row.account.milksupplier_id;
+    if (!groupedTotals[sid]) {
+      groupedTotals[sid] = {
+        name: row.account.milksupplier_name,
+        payable: 0, paid: 0, dueExtra: 0,
+        categories: [],
+      };
+    }
+    groupedTotals[sid].payable += row.payable;
+    groupedTotals[sid].paid += row.paid;
+    groupedTotals[sid].dueExtra += row.net;
+    if (!groupedTotals[sid].categories.includes(row.account.category_name)) {
+      groupedTotals[sid].categories.push(row.account.category_name);
+    }
+  }
+} else {
+  // Logged-out metadata defaults
+  const now = new Date();
+  month = now.getMonth() + 1;
+  year = now.getFullYear();
+  totalDays = daysInMonth(year, month);
+  const monthNamesList = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  monthName = monthNamesList[month - 1];
+}
+
+const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const daysArray = Array.from({ length: 31 }, (_, i) => i + 1);
+---
+<Layout title={`${monthName} ${year} - Milk Ledger`} accentColor="#0284c7">
+  <style is:global>
+    .supplier-name:hover {
+      color: var(--accent-secondary);
+      text-decoration: underline;
+    }
+  </style>
+  {isLoggedIn ? (
+    <div class="container animate-fade-in pb-4">
+      <Header month={month} year={year} monthName={monthName} />
+
+      <!-- Filters -->
+      <div class="glass-card mb-4 p-3">
+        <div class="flex-between flex-wrap gap-3">
+          <div class="flex gap-2" style="align-items:center;">
+            <strong class="text-muted text-xs" style="text-transform:uppercase;letter-spacing:0.04em;">📅 Period:</strong>
+            <form method="GET" class="flex gap-2" id="filterForm">
+              <select name="m" class="form-select" style="width:auto;" onchange="this.form.submit()">
+                {monthNames.map((name, i) => (
+                  <option value={i + 1} selected={i + 1 === month}>{name}</option>
+                ))}
+              </select>
+              <select name="y" class="form-select" style="width:auto;" onchange="this.form.submit()">
+                {Array.from({ length: (new Date().getFullYear() + 1) - 2020 + 1 }, (_, i) => new Date().getFullYear() + 1 - i).map(y => (
+                  <option value={y} selected={y === year}>{y}</option>
+                ))}
+              </select>
+            </form>
+          </div>
+          <div class="flex gap-3 text-xs">
+            <span class="badge" style="background: color-mix(in srgb, var(--accent-secondary) 15%, transparent); color: var(--accent-secondary);">
+              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent-secondary);margin-right:4px;"></span>
+              Auto
+            </span>
+            <span class="badge" style="background: color-mix(in srgb, var(--accent-warning) 15%, transparent); color: var(--accent-warning);">
+              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent-warning);margin-right:4px;"></span>
+              Manual
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Grand Matrix -->
+      <div class="glass-card" style="overflow:hidden;">
+        <div class="table-wrapper">
+          <table class="main-matrix">
+            <thead>
+              <tr>
+                <th class="sticky-col" style="text-align:left;padding-left:1rem;min-width:210px;">Supplier Details</th>
+                {daysArray.map(d => (
+                  <th class={d <= totalDays ? '' : 'text-muted'} style={d > totalDays ? 'opacity:0.3;background:rgba(0,0,0,0.05);' : ''}>
+                    {d}
+                  </th>
+                ))}
+                <th style="min-width:70px;">Total</th>
+                <th style="min-width:90px;color:#e0556a;">Payable</th>
+                <th style="min-width:90px;color:#00b894;">Paid</th>
+                <th style="min-width:100px;">Due/Extra</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.keys(matrix).length === 0 && (
+                <tr><td colspan="36" class="empty-state">No suppliers added for this month. Click "Add Supplier" to get started!</td></tr>
+              )}
+              {Object.entries(matrix).map(([aid, row]) => {
+                const acc = row.account;
+                const entries = row.entries;
+                return (
+                  <tr>
+                    <td class="sticky-col supplier-edit-trigger" style="padding:0.6rem 0.75rem; cursor:pointer;" data-acc-id={acc.id}>
+                      <div class="fw-bold truncate supplier-name" style="max-width:180px;" title="Edit Configuration">
+                        <span style="font-size:0.8rem; margin-right:4px;">✏️</span>
+                        {acc.milksupplier_name}
+                        {!acc.active ? <span class="badge-sm" style="background:rgba(224,85,106,0.2);color:#e0556a;margin-left:4px;">Inactive</span> : ''}
+                      </div>
+                      <div class="text-muted text-xs flex gap-1" style="align-items:center;margin-top:2px;">
+                        <span class="badge-sm" style="background:var(--bg-base);opacity:0.8;">{acc.category_name}</span>
+                        <span>₹{Number(acc.rate).toFixed(2)}/kg</span>
+                      </div>
+                    </td>
+                    {daysArray.map(d => {
+                      if (d > totalDays) {
+                        return <td style="background:rgba(0,0,0,0.04);"></td>;
+                      }
+                      const cell = entries[d] || { q: 0, type: 'none' };
+                      const isAuto = cell.type === 'auto';
+                      const isManual = cell.type === 'manual';
+                      const cellColor = cell.q > 0 ? (isAuto ? 'var(--accent-secondary)' : 'var(--accent-warning)') : 'var(--text-muted)';
+                      const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                      return (
+                        <td class="day-cell" data-aid={aid} data-d={d} data-date={dateStr}>
+                          <div class="day-cell-value" style={`color: ${cellColor}`}>
+                            {cell.q > 0 ? cell.q : '-'}
+                          </div>
+                          {cell.q > 0 && isAuto && <div class="day-dot auto"></div>}
+                          {cell.q > 0 && isManual && <div class="day-dot manual"></div>}
+                        </td>
+                      );
+                    })}
+                    <td class="text-center fw-bold">{row.totalQty}</td>
+                    <td class="text-center val-payable">₹{row.payable.toFixed(2)}</td>
+                    <td class="text-center val-paid day-cell" data-aid={aid} style="background: color-mix(in srgb, var(--accent-success) 5%, transparent);">
+                      + {row.paid > 0 ? `₹${row.paid.toFixed(2)}` : '0'}
+                    </td>
+                    <td class="text-center fw-bold" style={row.net < 0
+                      ? 'background: color-mix(in srgb, var(--accent-danger) 8%, transparent);'
+                      : row.net > 0 ? 'background: color-mix(in srgb, var(--accent-success) 8%, transparent);' : ''}>
+                      {row.net < 0
+                        ? <span class="val-due">Due: ₹{Math.abs(row.net).toFixed(2)}</span>
+                        : row.net > 0
+                          ? <span class="val-extra">Extra: {row.net.toFixed(2)}</span>
+                          : <span class="val-settled">Settled ✓</span>
+                      }
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {Object.keys(groupedTotals).length > 0 && (
+        <SupplierSummary groupedTotals={groupedTotals} />
+      )}
+
+      {paymentHistoryList && paymentHistoryList.length > 0 && (
+        <PaymentHistory payments={paymentHistoryList} />
+      )}
+    </div>
+  ) : (
+    <!-- Public SEO Landing Page -->
+    <div class="container animate-fade-in pb-12">
+      <div class="dashboard-hero py-12 mb-8 text-center glass-card p-8">
+        <span class="badge mb-2">🥛 Daily Bookkeeping Utility</span>
+        <h1 class="h1 mb-2" style="font-weight: 800; letter-spacing: -0.02em;">Online Milk Ledger &amp; Delivery Register</h1>
+        <p class="text-muted text-sm max-w-sm mx-auto mb-6">
+          The ultimate digital portal (Doodh ka Hissab) to track daily milk deliveries, manage custom supplier rates, automatically calculate dues, and record monthly payments.
+        </p>
+        <div class="flex gap-3 justify-center">
+          <a href="/login" class="btn btn-primary">Sign In to Dashboard</a>
+          <a href="/register" class="btn">Create Free Account</a>
+        </div>
+      </div>
+
+      <!-- Features grid -->
+      <section class="glass-card p-6 mb-8">
+        <h2 class="h4 mb-4 text-accent" style="font-weight: 800;">Key Features of our Digital Milk Register</h2>
+        <div class="row gap-4" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); display: grid;">
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">🥛 Daily intake delivery logs</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Record daily milk deliveries for morning and evening shifts. Log custom quantity metrics (kg or liters) on a flexible grid.
+            </p>
+          </div>
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">💰 Custom rates per milk category</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Configure custom milk category rates (Cow/Buffalo milk) and assign them to specific milk supplier accounts.
+            </p>
+          </div>
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">📅 Automated monthly bookkeeping</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Calculate total delivery quantities, amounts payable, payments made, and due balances automatically every calendar month.
+            </p>
+          </div>
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">⚡ Automatic carries forward</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Roll active suppliers, quantities, custom rates, and carry forward outstanding balances into the next calendar month automatically.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- FAQ Section -->
+      <section class="glass-card p-6">
+        <h2 class="h4 mb-4 text-accent" style="font-weight: 800;">Frequently Asked Questions (FAQs)</h2>
+        <div class="space-y-6">
+          <div>
+            <h3 class="h6 fw-bold mb-1">What is Doodh ka Hissab?</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Doodh ka Hissab is the traditional method of ledger tracking for daily milk deliveries. Our digital ledger replaces paper calendars and dairies with a highly secure, automated edge platform.
+            </p>
+          </div>
+          <div>
+            <h3 class="h6 fw-bold mb-1">Can I manage multiple milk suppliers?</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Yes! You can add multiple supplier accounts, set different rates for each, and track individual payouts, cash entries, and total due balances in a single window.
+            </p>
+          </div>
+          <div>
+            <h3 class="h6 fw-bold mb-1">Is this tool free to use?</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Yes. All smart calculations, ledgers, checklists, and vaults on <strong>MYDASHBOARD.CO.IN</strong> are completely free. Secure workspaces require a simple free account to save details safely on Cloudflare.
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+  )}
+
+  <AddAccountModal suppliers={suppliersList || []} categories={categoriesList || []} month={month} year={year} />
+  <EditQuantityModal />
+  <PaymentModal />
+  {pendingAutofills.length > 0 && <AutofillModal pending={pendingAutofills} />}
+
+</Layout>
+
+<script>
+  // ─── Modal Helpers ───
+  function showModal(id: string) { 
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'flex'; 
+  }
+
+  // ─── Main Matrix Events (Delegated) ───
+  document.querySelector('.main-matrix')?.addEventListener('click', function(e) {
+    const target = e.target as HTMLElement;
+    
+    // 1. Quantity Modal (Daily Entry)
+    const qtyCell = target.closest('.day-cell[data-date]') as HTMLElement;
+    if (qtyCell) {
+      const dateStr = qtyCell.dataset.date || '';
+      const aid = qtyCell.dataset.aid || '';
+      const val = qtyCell.querySelector('.day-cell-value')?.textContent?.trim() || '-';
+      
+      const labelEl = document.getElementById('qtyDateLabel');
+      if (labelEl) labelEl.textContent = dateStr;
+      
+      const inputAid = document.getElementById('qtyAccId') as HTMLInputElement;
+      if (inputAid) inputAid.value = aid;
+      
+      const inputDate = document.getElementById('qtyDate') as HTMLInputElement;
+      if (inputDate) inputDate.value = dateStr;
+      
+      const inputQty = document.getElementById('qtyInput') as HTMLInputElement;
+      if (inputQty) inputQty.value = val === '-' ? '' : val;
+      
+      showModal('qtyModal');
+      return;
+    }
+
+    // 2. Payment Modal (Add Payment from Matrix)
+    const payCell = target.closest('.val-paid.day-cell') as HTMLElement;
+    if (payCell) {
+      const aid = payCell.dataset.aid || '';
+      const frm = document.getElementById('payForm') as HTMLFormElement;
+      if (frm) {
+        frm.reset();
+        const payPaymentId = document.getElementById('payPaymentId') as HTMLInputElement;
+        if (payPaymentId) payPaymentId.value = '0';
+        
+        const payAccId = document.getElementById('payAccId') as HTMLInputElement;
+        if (payAccId) payAccId.value = aid;
+        
+        const actionInput = frm.querySelector('input[name="action"]') as HTMLInputElement;
+        if (actionInput) actionInput.value = 'add_payment';
+        
+        const titleEl = document.getElementById('payModalTitle');
+        if (titleEl) titleEl.textContent = 'Add Payment';
+        
+        showModal('payModal');
+      }
+      return;
+    }
+
+    // 3. Edit Supplier Config
+    const trigger = target.closest('.supplier-edit-trigger') as HTMLElement;
+    if (trigger) {
+      const accId = parseInt(trigger.dataset.accId || '0');
+      const accounts = (window as any).__accounts || [];
+      const acc = accounts.find((a: any) => a.id == accId);
+      
+      if (!acc) {
+        console.warn('Account not found for ID:', accId);
+        return;
+      }
+      
+      const accModalTitle = document.getElementById('accModalTitle');
+      if (accModalTitle) accModalTitle.textContent = 'Edit Supplier Config';
+      
+      const accAccountId = document.getElementById('accAccountId') as HTMLInputElement;
+      if (accAccountId) accAccountId.value = String(acc.id);
+      
+      const accSupplierId = document.getElementById('accSupplierId') as HTMLSelectElement;
+      if (accSupplierId) {
+        accSupplierId.value = String(acc.milksupplier_id);
+        accSupplierId.dispatchEvent(new Event('change'));
+      }
+      
+      const accCategory = document.getElementById('accCategory') as HTMLSelectElement;
+      if (accCategory) accCategory.value = String(acc.category_id);
+      
+      const accRate = document.getElementById('accRate') as HTMLInputElement;
+      if (accRate) accRate.value = String(acc.rate);
+      
+      const accAutoQty = document.getElementById('accAutoQty') as HTMLInputElement;
+      if (accAutoQty) accAutoQty.value = acc.autogen_quantity ? String(acc.autogen_quantity) : '';
+      
+      const accAutoTime = document.getElementById('accAutoTime') as HTMLInputElement;
+      if (accAutoTime) accAutoTime.value = acc.autogen_time || '07:30';
+      
+      const accStart = document.getElementById('accStart') as HTMLInputElement;
+      if (accStart) accStart.value = acc.start_date || '';
+      
+      const accEnd = document.getElementById('accEnd') as HTMLInputElement;
+      if (accEnd) accEnd.value = acc.end_date || '';
+      
+      const accActive = document.getElementById('accActive') as HTMLInputElement;
+      if (accActive) accActive.checked = acc.active == 1;
+      
+      const accDelBtn = document.getElementById('accDelBtn');
+      if (accDelBtn) accDelBtn.style.display = '';
+      
+      const supDelBtn = document.getElementById('supDelBtn');
+      if (supDelBtn) supDelBtn.style.display = '';
+      
+      showModal('addAccountModal');
+      return;
+    }
+  });
+
+  // ─── Global Click Events (Delegated) ───
+  document.addEventListener('click', function(e) {
+    const target = e.target as HTMLElement;
+
+    // Close modals on overlay click
+    if (target.classList.contains('modal-overlay')) {
+      target.style.display = 'none';
+      return;
+    }
+
+    // Edit Payment (from Payment History)
+    const editPayBtn = target.closest('.edit-pay-btn') as HTMLElement;
+    if (editPayBtn) {
+      try {
+        const payStr = editPayBtn.getAttribute('data-pay');
+        if (!payStr) return;
+        const pay = JSON.parse(payStr);
+        const frm = document.getElementById('payForm') as HTMLFormElement;
+        if (!frm) return;
+        
+        const actionInput = frm.querySelector('input[name="action"]') as HTMLInputElement;
+        if (actionInput) actionInput.value = 'edit_payment';
+        
+        const payPaymentId = document.getElementById('payPaymentId') as HTMLInputElement;
+        if (payPaymentId) payPaymentId.value = String(pay.id);
+        
+        const payAccId = document.getElementById('payAccId') as HTMLInputElement;
+        if (payAccId) payAccId.value = String(pay.account_id);
+        
+        const amountInput = frm.querySelector('input[name="amount"]') as HTMLInputElement;
+        if (amountInput) amountInput.value = String(pay.amount);
+        
+        const dateInput = frm.querySelector('input[name="payment_date"]') as HTMLInputElement;
+        if (dateInput) dateInput.value = pay.payment_date;
+        
+        const noteInput = frm.querySelector('input[name="note"]') as HTMLInputElement;
+        if (noteInput) noteInput.value = pay.note || '';
+        
+        const titleEl = document.getElementById('payModalTitle');
+        if (titleEl) titleEl.textContent = 'Edit Payment';
+        
+        showModal('payModal');
+      } catch (err) {
+        console.error('Failed to parse payment data:', err);
+      }
+      return;
+    }
+
+    // Delete Payment
+    const delPayBtn = target.closest('.del-pay-btn') as HTMLElement;
+    if (delPayBtn) {
+      const payId = delPayBtn.getAttribute('data-id');
+      if (confirm('Delete this payment permanently?')) {
+        const fd = new FormData();
+        fd.append('action', 'delete_payment');
+        if (payId) fd.append('payment_id', payId);
+        fetch('/api/milk', { method: 'POST', body: fd })
+          .then(res => res.json())
+          .then(d => {
+            if (d.success) window.location.reload();
+            else alert(d.message || 'Failed.');
+          })
+          .catch(() => alert('Network error.'));
+      }
+      return;
+    }
+  });
+
+  // ─── Form Submissions ───
+  document.getElementById('qtyForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await fetch('/api/milk', { method: 'POST', body: new FormData(e.target as HTMLFormElement) });
+    window.location.reload();
+  });
+
+  document.getElementById('payForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await fetch('/api/milk', { method: 'POST', body: new FormData(e.target as HTMLFormElement) });
+    window.location.reload();
+  });
+
+  document.getElementById('accForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = (e.target as HTMLFormElement).querySelector('button[type="submit"]') as HTMLButtonElement;
+    const alertBox = document.getElementById('accAlert');
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch('/api/milk', { method: 'POST', body: new FormData(e.target as HTMLFormElement) });
+      const d = await res.json();
+      if (d.success) window.location.reload();
+      else if (alertBox) { alertBox.textContent = d.message || 'Failed.'; alertBox.style.display = 'block'; }
+    } catch { if (alertBox) { alertBox.textContent = 'Network error.'; alertBox.style.display = 'block'; } }
+    if (btn) btn.disabled = false;
+  });
+
+  // ─── Account & Supplier Management ───
+  document.querySelector('[data-open="addAccountModal"]')?.addEventListener('click', function() {
+    const titleEl = document.getElementById('accModalTitle');
+    if (titleEl) titleEl.textContent = 'New Milk Supplier';
+    
+    const frm = document.getElementById('accForm') as HTMLFormElement;
+    if (frm) frm.reset();
+    
+    const accAccountId = document.getElementById('accAccountId') as HTMLInputElement;
+    if (accAccountId) accAccountId.value = '0';
+    
+    const accSupplierId = document.getElementById('accSupplierId') as HTMLSelectElement;
+    if (accSupplierId) {
+      accSupplierId.value = '0';
+      accSupplierId.dispatchEvent(new Event('change'));
+    }
+    
+    const accDelBtn = document.getElementById('accDelBtn');
+    if (accDelBtn) accDelBtn.style.display = 'none';
+    
+    const supDelBtn = document.getElementById('supDelBtn');
+    if (supDelBtn) supDelBtn.style.display = 'none';
+    
+    showModal('addAccountModal');
+  });
+
+  document.getElementById('accDelBtn')?.addEventListener('click', async () => {
+    if (!confirm('WARNING: Delete ALL entries and payments for this supplier THIS MONTH?')) return;
+    const fd = new FormData();
+    fd.append('action', 'delete_account');
+    const inputVal = (document.getElementById('accAccountId') as HTMLInputElement).value;
+    fd.append('account_id', inputVal);
+    const res = await fetch('/api/milk', { method: 'POST', body: fd });
+    const d = await res.json();
+    if (d.success) window.location.reload();
+    else alert(d.message || 'Failed.');
+  });
+
+  document.getElementById('supDelBtn')?.addEventListener('click', async () => {
+    if (!confirm('CRITICAL: PERMANENTLY delete this supplier and ALL their data?')) return;
+    const fd = new FormData();
+    fd.append('action', 'delete_supplier');
+    const selectVal = (document.getElementById('accSupplierId') as HTMLSelectElement).value;
+    fd.append('supplier_id', selectVal);
+    const res = await fetch('/api/milk', { method: 'POST', body: fd });
+    const d = await res.json();
+    if (d.success) window.location.reload();
+    else alert(d.message || 'Failed.');
+  });
+
+  // Set today's date for payment date input
+  const payDateInput = document.getElementById('payDate') as HTMLInputElement;
+  if (payDateInput && !payDateInput.value) {
+    const now = new Date();
+    payDateInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }
+</script>
+<script define:vars={{ accounts, pendingAutofills }}>
+  window.__accounts = accounts;
+  window.__pendingAutofills = pendingAutofills;
+
+  // Autofill confirmation
+  if (pendingAutofills && pendingAutofills.length > 0) {
+    const el = document.getElementById('autofillModal');
+    if (el) el.style.display = 'flex';
+    document.getElementById('confirmAutofillBtn')?.addEventListener('click', async function() {
+      const btn = this;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Auto-filling...';
+      for (const af of pendingAutofills) {
+        const fd = new FormData();
+        fd.append('action', 'bulk_autofill');
+        fd.append('account_id', String(af.account_id));
+        await fetch('/api/milk', { method: 'POST', body: fd });
+      }
+      window.location.reload();
+    });
+  }
+</script>

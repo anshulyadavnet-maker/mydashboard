@@ -30,8 +30,15 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const isHome = normalizedPath === '/';
   const isAuthRoute = normalizedPath === '/login' || normalizedPath === '/register';
   const isAuthApi = normalizedPath.startsWith('/api/auth/');
+  const isPublicTool = 
+    normalizedPath === '/calculator' || 
+    normalizedPath === '/age-calculator' ||
+    normalizedPath === '/milk' ||
+    normalizedPath === '/expenses' ||
+    normalizedPath === '/notes' ||
+    normalizedPath === '/passwords';
 
-  const isPublic = isHome || isAuthRoute || isAuthApi;
+  const isPublic = isHome || isAuthRoute || isAuthApi || isPublicTool;
 
   // If not a public route and user not authenticated, redirect to login
   if (!isPublic && !user) {

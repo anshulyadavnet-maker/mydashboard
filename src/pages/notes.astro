@@ -1,133 +1,216 @@
 ---
 import Layout from '../components/Layout.astro';
-import { getDB, getNotes } from '../lib/db';
+import { getDB, getNotes, recordToolUsage } from '../lib/db';
 
-const user = Astro.locals.user!;
-if (!user) return Astro.redirect('/login');
+const user = Astro.locals.user;
+const isLoggedIn = !!user;
 
-const db = getDB(Astro);
-const notes = await getNotes(db, user.userId);
-
-// Extract all unique tags
+let notes = [];
 const allTags = new Set<string>();
-notes.forEach((note: any) => {
-  if (note.tags) {
-    note.tags.split(',').forEach((t: string) => allTags.add(t.trim()));
-  }
-});
+
+if (isLoggedIn) {
+  const db = getDB(Astro);
+  await recordToolUsage(db, user.userId, 'notes');
+  notes = await getNotes(db, user.userId);
+  
+  // Extract all unique tags
+  notes.forEach((note: any) => {
+    if (note.tags) {
+      note.tags.split(',').forEach((t: string) => allTags.add(t.trim()));
+    }
+  });
+}
 ---
-<Layout title="Notes - Milk Hissab">
-  <div class="container animate-fade-in pb-4">
-    <div class="flex-between mb-4 flex-wrap gap-4">
-      <div>
-        <h1 class="h2 mb-1">📝 Notes</h1>
-        <p class="text-muted text-sm">Capture ideas, checklists, and reminders.</p>
-      </div>
-      <button class="btn btn-primary" id="addNoteBtn">+ New Note</button>
-    </div>
-
-    <!-- Toolbar: Search & Filters -->
-    <div class="glass-card mb-4 p-3">
-      <div class="flex-between flex-wrap gap-3">
-        <div class="flex gap-2 flex-1" style="min-width:200px;">
-          <input type="text" id="noteSearch" class="form-control" placeholder="Search notes or tags...">
+<Layout title="Notes - MYDASHBOARD.CO.IN" accentColor="#d97706">
+  {isLoggedIn ? (
+    <div class="container animate-fade-in pb-4">
+      <div class="flex-between mb-4 flex-wrap gap-4">
+        <div>
+          <h1 class="h2 mb-1">📝 Notes</h1>
+          <p class="text-muted text-sm">Capture ideas, checklists, and reminders.</p>
         </div>
-        <div class="flex gap-2 flex-wrap">
-          <select id="tagFilter" class="form-select" style="width:auto;">
-            <option value="">All Tags</option>
-            {[...allTags].sort().map(tag => (
-              <option value={tag}>{tag}</option>
-            ))}
-          </select>
-          <select id="colorFilter" class="form-select" style="width:auto;">
-            <option value="">All Colors</option>
-            <option value="#ffffff">White</option>
-            <option value="#ff8a80">Red</option>
-            <option value="#ffd180">Orange</option>
-            <option value="#ffff8d">Yellow</option>
-            <option value="#ccff90">Green</option>
-            <option value="#a7ffeb">Teal</option>
-            <option value="#80d8ff">Blue</option>
-            <option value="#cfd8dc">Grey</option>
-          </select>
-        </div>
+        <button class="btn btn-primary" id="addNoteBtn">+ New Note</button>
       </div>
-    </div>
 
-    <div class="notes-grid" id="notesGrid">
-      {notes.length === 0 ? (
-        <div class="glass-card p-8 text-center w-100" style="grid-column: 1 / -1;">
-          <h5 class="text-muted">No notes yet. Click "New Note" to get started.</h5>
-        </div>
-      ) : (
-        notes.map((note: any) => (
-          <div class="note-card glass-card p-4" 
-               data-id={note.id} 
-               data-content={note.content.toLowerCase()} 
-               data-tags={note.tags ? note.tags.toLowerCase() : ''}
-               data-color={note.color}
-               style={`border-top: 4px solid ${note.color};`}>
-            <div class="note-content mb-3" style="white-space: pre-wrap;">{note.content}</div>
-            <div class="flex-between mt-auto pt-2 border-t border-white/5">
-              <div class="flex gap-1 flex-wrap">
-                {note.tags && note.tags.split(',').map((tag: string) => (
-                  <span class="badge-sm" style="background:rgba(255,255,255,0.05); color:var(--text-muted);">
-                    #{tag.trim()}
-                  </span>
-                ))}
-              </div>
-              <div class="text-xs text-muted">
-                {new Date(note.updated_at).toLocaleDateString()}
-              </div>
-            </div>
+      <!-- Toolbar: Search & Filters -->
+      <div class="glass-card mb-4 p-3">
+        <div class="flex-between flex-wrap gap-3">
+          <div class="flex gap-2 flex-1" style="min-width:200px;">
+            <input type="text" id="noteSearch" class="form-control" placeholder="Search notes or tags...">
           </div>
-        ))
-      )}
-    </div>
-  </div>
-
-  <!-- Note Modal -->
-  <div class="modal-overlay" id="noteModal" style="display:none;">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="noteModalTitle">New Note</h5>
-        <button class="modal-close" onclick="document.getElementById('noteModal').style.display='none'">&times;</button>
-      </div>
-      <div class="modal-body">
-        <form id="noteForm">
-          <input type="hidden" name="action" id="noteAction" value="create">
-          <input type="hidden" name="id" id="noteId" value="">
-          
-          <div class="mb-3">
-            <label class="form-label">Note Content *</label>
-            <textarea class="form-control" name="content" id="noteContent" rows="6" required placeholder="What's on your mind?"></textarea>
-          </div>
-
-          <div class="mb-3">
-            <label class="form-label">Tags (comma separated)</label>
-            <input type="text" class="form-control" name="tags" id="noteTags" placeholder="e.g. Work, Personal, Ideas">
-          </div>
-
-          <div class="mb-4">
-            <label class="form-label">Color Theme</label>
-            <div class="color-picker-grid">
-              {['#ffffff', '#ff8a80', '#ffd180', '#ffff8d', '#ccff90', '#a7ffeb', '#80d8ff', '#cfd8dc'].map(c => (
-                <label class="color-option">
-                  <input type="radio" name="color" value={c} checked={c === '#ffffff'}>
-                  <span class="color-circle" style={`background:${c}`}></span>
-                </label>
+          <div class="flex gap-2 flex-wrap">
+            <select id="tagFilter" class="form-select" style="width:auto;">
+              <option value="">All Tags</option>
+              {[...allTags].sort().map(tag => (
+                <option value={tag}>{tag}</option>
               ))}
-            </div>
+            </select>
+            <select id="colorFilter" class="form-select" style="width:auto;">
+              <option value="">All Colors</option>
+              <option value="#ffffff">White</option>
+              <option value="#ff8a80">Red</option>
+              <option value="#ffd180">Orange</option>
+              <option value="#ffff8d">Yellow</option>
+              <option value="#ccff90">Green</option>
+              <option value="#a7ffeb">Teal</option>
+              <option value="#80d8ff">Blue</option>
+              <option value="#cfd8dc">Grey</option>
+            </select>
           </div>
+        </div>
+      </div>
 
-          <div class="flex gap-2">
-            <button type="submit" class="btn btn-primary" style="flex:1;">Save Note</button>
-            <button type="button" class="btn btn-danger btn-sm" id="noteDelBtn" style="display:none;">🗑️</button>
+      <div class="notes-grid" id="notesGrid">
+        {notes.length === 0 ? (
+          <div class="glass-card p-8 text-center w-100" style="grid-column: 1 / -1;">
+            <h5 class="text-muted">No notes yet. Click "New Note" to get started.</h5>
           </div>
-        </form>
+        ) : (
+          notes.map((note: any) => (
+            <div class="note-card glass-card p-4" 
+                 data-id={note.id} 
+                 data-content={note.content.toLowerCase()} 
+                 data-tags={note.tags ? note.tags.toLowerCase() : ''}
+                 data-color={note.color}
+                 style={`border-top: 4px solid ${note.color};`}>
+              <div class="note-content mb-3" style="white-space: pre-wrap;">{note.content}</div>
+              <div class="flex-between mt-auto pt-2 border-t border-white/5">
+                <div class="flex gap-1 flex-wrap">
+                  {note.tags && note.tags.split(',').map((tag: string) => (
+                    <span class="badge-sm" style="background:rgba(255,255,255,0.05); color:var(--text-muted);">
+                      #{tag.trim()}
+                    </span>
+                  ))}
+                </div>
+                <div class="text-xs text-muted">
+                  {new Date(note.updated_at).toLocaleDateString()}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <!-- Note Modal -->
+      <div class="modal-overlay" id="noteModal" style="display:none;">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="noteModalTitle">New Note</h5>
+            <button class="modal-close" onclick="document.getElementById('noteModal').style.display='none'">&times;</button>
+          </div>
+          <div class="modal-body">
+            <form id="noteForm">
+              <input type="hidden" name="action" id="noteAction" value="create">
+              <input type="hidden" name="id" id="noteId" value="">
+              
+              <div class="mb-3">
+                <label class="form-label" for="noteContent">Content *</label>
+                <textarea id="noteContent" name="content" class="form-control" rows="6" placeholder="Write your note, checklist, or reminder here..." required></textarea>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label" for="noteTags">Tags (comma-separated)</label>
+                <input type="text" id="noteTags" name="tags" class="form-control" placeholder="e.g. todo, shopping, work">
+              </div>
+
+              <div class="row mb-4">
+                <div class="col-12">
+                  <label class="form-label">Note Color Accent</label>
+                  <div class="color-picker-grid">
+                    {[
+                      { hex: '#ffffff', name: 'White' },
+                      { hex: '#ff8a80', name: 'Red' },
+                      { hex: '#ffd180', name: 'Orange' },
+                      { hex: '#ffff8d', name: 'Yellow' },
+                      { hex: '#ccff90', name: 'Green' },
+                      { hex: '#a7ffeb', name: 'Teal' },
+                      { hex: '#80d8ff', name: 'Blue' },
+                      { hex: '#cfd8dc', name: 'Grey' }
+                    ].map(c => (
+                      <label class="color-option" title={c.name}>
+                        <input type="radio" name="color" value={c.hex} checked={c.hex === '#ffffff'}>
+                        <span class="color-circle" style={`background:${c.hex}; border: 1px solid var(--border-color);`}></span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex gap-2">
+                <button type="submit" class="btn btn-primary" style="flex:1;">Save Note</button>
+                <button type="button" class="btn btn-danger btn-sm" id="noteDelBtn" style="display:none;">🗑️</button>
+              </div>
+            </form>
+          </div>
+        </div>
       </div>
     </div>
-  </div>
+  ) : (
+    <!-- Public SEO Landing Page -->
+    <div class="container animate-fade-in pb-12">
+      <div class="dashboard-hero py-12 mb-8 text-center glass-card p-8">
+        <span class="badge mb-2">📝 Note taking Utility</span>
+        <h1 class="h1 mb-2" style="font-weight: 800; letter-spacing: -0.02em;">Online Quick Notes &amp; Sticky Notepad</h1>
+        <p class="text-muted text-sm max-w-sm mx-auto mb-6">
+          Draft thoughts, manage checklist reminders, organize checklists, tag sticky notes, and keep your ideas saved securely on the Cloud.
+        </p>
+        <div class="flex gap-3 justify-center">
+          <a href="/login" class="btn btn-primary">Sign In to Dashboard</a>
+          <a href="/register" class="btn">Create Free Account</a>
+        </div>
+      </div>
+
+      <!-- Features grid -->
+      <section class="glass-card p-6 mb-8">
+        <h2 class="h4 mb-4 text-accent" style="font-weight: 800;">Key Features of our Notepad Tool</h2>
+        <div class="row gap-4" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); display: grid;">
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">🎨 Customizable Color Accents</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Pick color themes for your cards (Red, Yellow, Blue, Green, Grey, etc.) to highlight high priority tasks and categorize projects.
+            </p>
+          </div>
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">🏷️ Searchable Tags &amp; Filters</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Apply comma-separated tags to notes and filter them instantly using the tags filter. Keep your lists neat and organized.
+            </p>
+          </div>
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">🔍 Instant Text Search</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Find any note in seconds. Search through note contents, descriptions, and tag keywords in real-time as you type.
+            </p>
+          </div>
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">☁️ Serverless Data Sync</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Draft safe checklist logs. All modifications are instantly written to your secure personal Cloudflare database.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- FAQ Section -->
+      <section class="glass-card p-6">
+        <h2 class="h4 mb-4 text-accent" style="font-weight: 800;">Frequently Asked Questions (FAQs)</h2>
+        <div class="space-y-6">
+          <div>
+            <h3 class="h6 fw-bold mb-1">Is this notepad secure?</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Yes! Your notes are kept strictly private under your credentials and written to your secure personal database.
+            </p>
+          </div>
+          <div>
+            <h3 class="h6 fw-bold mb-1">Is there a search feature?</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Yes. The notes page features an instant search filter in the toolbar that searches both tags and note body text instantly.
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+  )}
 </Layout>
 
 <script>

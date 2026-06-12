@@ -1,0 +1,385 @@
+---
+import Layout from '../components/Layout.astro';
+import { getDB, recordToolUsage } from '../lib/db';
+
+const user = Astro.locals.user;
+if (user) {
+  try {
+    const db = getDB(Astro);
+    await recordToolUsage(db, user.userId, 'age-calculator');
+  } catch (err) {
+    console.error('Failed to record tool usage:', err);
+  }
+}
+---
+<Layout title="Age Calculator - MYDASHBOARD.CO.IN" accentColor="#10b981">
+  <script is:inline>
+    // Track local storage usage for anonymous sorting
+    (function() {
+      try {
+        const counts = JSON.parse(localStorage.getItem('tool_usage_local') || '{}');
+        counts['age-calculator'] = (counts['age-calculator'] || 0) + 1;
+        localStorage.setItem('tool_usage_local', JSON.stringify(counts));
+      } catch (e) {}
+    })();
+  </script>
+
+  <div class="container animate-fade-in pb-8">
+    <div class="text-center mb-8">
+      <div class="tool-badge mb-2">Utility Tool</div>
+      <h1 class="h1">🎂 Age Calculator</h1>
+      <p class="text-muted text-sm max-w-sm mx-auto">
+        Calculate your exact age, next birthday countdown, zodiac sign, and total living statistics in seconds.
+      </p>
+    </div>
+
+    <div class="row max-w-4xl mx-auto gap-6 justify-center">
+      <!-- Input Card -->
+      <div class="col-12 col-4 md:col-4">
+        <div class="glass-card age-input-card p-6 h-full">
+          <h2 class="h5 mb-4">📅 Date of Birth</h2>
+          <form id="ageForm" class="space-y-4">
+            <div>
+              <label class="form-label" for="dob">Date of Birth</label>
+              <input type="date" id="dob" name="dob" class="form-control" required>
+            </div>
+            <div>
+              <label class="form-label" for="targetDate">Calculate Age At</label>
+              <input type="date" id="targetDate" name="targetDate" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-primary w-100 mt-2">Calculate Age</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Result Card -->
+      <div class="col-12 col-8 md:col-8">
+        <div class="glass-card age-result-card p-6 flex flex-col justify-between h-full" id="ageResultBox" style="display:none;">
+          <div>
+            <h2 class="h5 mb-4 flex-between">
+              <span>🎉 Your Age Results</span>
+              <span id="zodiacBadge" class="badge bg-emerald-light">Zodiac</span>
+            </h2>
+
+            <!-- Exact Age Display -->
+            <div class="age-summary-grid mb-6">
+              <div class="age-summary-card">
+                <span class="age-val" id="resYears">0</span>
+                <span class="age-lbl">Years</span>
+              </div>
+              <div class="age-summary-card">
+                <span class="age-val" id="resMonths">0</span>
+                <span class="age-lbl">Months</span>
+              </div>
+              <div class="age-summary-card">
+                <span class="age-val" id="resDays">0</span>
+                <span class="age-lbl">Days</span>
+              </div>
+            </div>
+
+            <!-- Next Birthday Countdown -->
+            <div class="highlight-box bday-countdown-box mb-6">
+              <div class="flex items-center gap-3">
+                <span style="font-size: 1.8rem;">🎁</span>
+                <div>
+                  <h3 class="h6 mb-1 text-sm fw-bold">Next Birthday Countdown</h3>
+                  <p class="text-xs text-muted" id="bdayCountdownText">Loading countdown...</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Detailed Stats Table -->
+            <h3 class="h6 mb-2 fw-bold text-muted text-xs uppercase" style="letter-spacing:0.04em;">Detailed Statistics</h3>
+            <div class="stats-table">
+              <div class="stats-row">
+                <span>Total Months:</span>
+                <strong id="statMonths">0</strong>
+              </div>
+              <div class="stats-row">
+                <span>Total Weeks:</span>
+                <strong id="statWeeks">0</strong>
+              </div>
+              <div class="stats-row">
+                <span>Total Days:</span>
+                <strong id="statDays">0</strong>
+              </div>
+              <div class="stats-row">
+                <span>Total Hours:</span>
+                <strong id="statHours">0</strong>
+              </div>
+              <div class="stats-row">
+                <span>Total Minutes:</span>
+                <strong id="statMinutes">0</strong>
+              </div>
+              <div class="stats-row">
+                <span>Total Seconds:</span>
+                <strong id="statSeconds">0</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Placeholder (No input yet) -->
+        <div class="glass-card p-8 text-center flex flex-col items-center justify-center h-full text-muted" id="agePlaceholder">
+          <span style="font-size: 3rem; margin-bottom: 1rem;">🗓️</span>
+          <p class="text-sm">Please select your Date of Birth and click Calculate to view details.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</Layout>
+
+<style is:global>
+  /* Local styles for Age Calculator tool */
+  .tool-badge {
+    display: inline-block;
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.25rem 0.75rem;
+    border-radius: 50px;
+    border: 1px solid rgba(16, 185, 129, 0.2);
+  }
+
+  .age-input-card {
+    border-color: rgba(16, 185, 129, 0.2);
+  }
+
+  .age-result-card {
+    border-color: rgba(16, 185, 129, 0.2);
+    box-shadow: 0 10px 40px rgba(16, 185, 129, 0.1);
+  }
+
+  .bg-emerald-light {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+  }
+
+  .age-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+  }
+
+  .age-summary-card {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    padding: 1rem;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  [data-theme="light"] .age-summary-card {
+    background: #f1f5f9;
+  }
+
+  .age-val {
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--accent-success);
+    line-height: 1.1;
+  }
+
+  .age-lbl {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.25rem;
+  }
+
+  .bday-countdown-box {
+    background: rgba(16, 185, 129, 0.08);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+  }
+
+  .stats-table {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+
+  .stats-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .stats-row:last-child {
+    border-bottom: none;
+  }
+  .stats-row:nth-child(even) {
+    background: rgba(0, 0, 0, 0.05);
+  }
+  [data-theme="light"] .stats-row:nth-child(even) {
+    background: #f8fafc;
+  }
+
+  .stats-row span {
+    color: var(--text-secondary);
+  }
+  .stats-row strong {
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+
+<script>
+  // Set default values in date inputs
+  const dobInput = document.getElementById('dob') as HTMLInputElement;
+  const targetInput = document.getElementById('targetDate') as HTMLInputElement;
+
+  if (targetInput && !targetInput.value) {
+    const today = new Date();
+    targetInput.value = today.toISOString().split('T')[0];
+  }
+
+  const ageForm = document.getElementById('ageForm') as HTMLFormElement;
+  const agePlaceholder = document.getElementById('agePlaceholder') as HTMLDivElement;
+  const ageResultBox = document.getElementById('ageResultBox') as HTMLDivElement;
+
+  // Output fields
+  const resYears = document.getElementById('resYears');
+  const resMonths = document.getElementById('resMonths');
+  const resDays = document.getElementById('resDays');
+  const zodiacBadge = document.getElementById('zodiacBadge');
+  const bdayCountdownText = document.getElementById('bdayCountdownText');
+
+  // Stats fields
+  const statMonths = document.getElementById('statMonths');
+  const statWeeks = document.getElementById('statWeeks');
+  const statDays = document.getElementById('statDays');
+  const statHours = document.getElementById('statHours');
+  const statMinutes = document.getElementById('statMinutes');
+  const statSeconds = document.getElementById('statSeconds');
+
+  // Zodiac Helper
+  function getZodiacSign(day: number, month: number): string {
+    const signs = [
+      { name: "Capricorn ♑", date: 119 },
+      { name: "Aquarius ♒", date: 218 },
+      { name: "Pisces ♓", date: 320 },
+      { name: "Aries ♈", date: 419 },
+      { name: "Taurus ♉", date: 520 },
+      { name: "Gemini ♊", date: 620 },
+      { name: "Cancer ♋", date: 722 },
+      { name: "Leo ♌", date: 822 },
+      { name: "Virgo ♍", date: 922 },
+      { name: "Libra ♎", date: 1022 },
+      { name: "Scorpio ♏", date: 1121 },
+      { name: "Sagittarius ♐", date: 1221 },
+      { name: "Capricorn ♑", date: 1231 }
+    ];
+    const val = (month * 100) + day;
+    for (let i = 0; i < signs.length; i++) {
+      if (val <= signs[i].date) {
+        return signs[i].name;
+      }
+    }
+    return "Capricorn ♑";
+  }
+
+  ageForm?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!dobInput.value || !targetInput.value) return;
+
+    const dob = new Date(dobInput.value + 'T00:00:00');
+    const target = new Date(targetInput.value + 'T00:00:00');
+
+    if (target < dob) {
+      alert("Target date cannot be before Date of Birth!");
+      return;
+    }
+
+    // Age Calculation
+    let years = target.getFullYear() - dob.getFullYear();
+    let months = target.getMonth() - dob.getMonth();
+    let days = target.getDate() - dob.getDate();
+
+    if (days < 0) {
+      // borrow days from previous month
+      const prevMonth = new Date(target.getFullYear(), target.getMonth(), 0);
+      days += prevMonth.getDate();
+      months--;
+    }
+
+    if (months < 0) {
+      months += 12;
+      years--;
+    }
+
+    // Update main text
+    if (resYears) resYears.textContent = String(years);
+    if (resMonths) resMonths.textContent = String(months);
+    if (resDays) resDays.textContent = String(days);
+
+    // Zodiac Sign
+    const zodiac = getZodiacSign(dob.getDate(), dob.getMonth() + 1);
+    if (zodiacBadge) zodiacBadge.textContent = zodiac;
+
+    // Next Birthday Countdown
+    const nextBday = new Date(target.getFullYear(), dob.getMonth(), dob.getDate());
+    if (nextBday < target) {
+      nextBday.setFullYear(nextBday.getFullYear() + 1);
+    }
+    
+    const diffMs = nextBday.getTime() - target.getTime();
+    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+    let bdayText = '';
+    if (diffDays === 0 || diffDays === 365) {
+      bdayText = "🎉 Today is your Birthday! Happy Birthday!";
+    } else {
+      // Calculate months/days until birthday
+      let bdayMonths = nextBday.getMonth() - target.getMonth();
+      let bdayDays = nextBday.getDate() - target.getDate();
+      
+      if (bdayDays < 0) {
+        const prevMonth = new Date(nextBday.getFullYear(), nextBday.getMonth(), 0);
+        bdayDays += prevMonth.getDate();
+        bdayMonths--;
+      }
+      if (bdayMonths < 0) {
+        bdayMonths += 12;
+      }
+      
+      const parts: string[] = [];
+      if (bdayMonths > 0) parts.push(`${bdayMonths} ${bdayMonths === 1 ? 'month' : 'months'}`);
+      if (bdayDays > 0) parts.push(`${bdayDays} ${bdayDays === 1 ? 'day' : 'days'}`);
+      bdayText = `🎁 ${parts.join(' and ')} left until your next birthday (${diffDays} days).`;
+    }
+    if (bdayCountdownText) bdayCountdownText.textContent = bdayText;
+
+    // Total Stats
+    const totalMs = target.getTime() - dob.getTime();
+    const totalSecs = Math.floor(totalMs / 1000);
+    const totalMins = Math.floor(totalSecs / 60);
+    const totalHrs = Math.floor(totalMins / 60);
+    const totalDys = Math.floor(totalHrs / 24);
+    const totalWks = Math.floor(totalDys / 7);
+    
+    // Average months calculation (approximation)
+    let totalMnts = (target.getFullYear() - dob.getFullYear()) * 12 + (target.getMonth() - dob.getMonth());
+    if (target.getDate() < dob.getDate()) {
+      totalMnts--;
+    }
+
+    if (statMonths) statMonths.textContent = totalMnts.toLocaleString();
+    if (statWeeks) statWeeks.textContent = totalWks.toLocaleString();
+    if (statDays) statDays.textContent = totalDys.toLocaleString();
+    if (statHours) statHours.textContent = totalHrs.toLocaleString();
+    if (statMinutes) statMinutes.textContent = totalMins.toLocaleString();
+    if (statSeconds) statSeconds.textContent = totalSecs.toLocaleString();
+
+    // Toggle Box Visibility
+    if (agePlaceholder) agePlaceholder.style.display = 'none';
+    if (ageResultBox) ageResultBox.style.display = 'block';
+  });
+</script>

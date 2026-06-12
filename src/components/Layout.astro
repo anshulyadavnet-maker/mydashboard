@@ -3,61 +3,174 @@ import '../styles/global.css';
 
 export interface Props {
   title: string;
+  accentColor?: string;
 }
-const { title } = Astro.props;
+const { title, accentColor } = Astro.props;
+const isLoggedIn = !!Astro.locals.user;
 ---
 <!doctype html>
-<html lang="en">
+<html lang="en" data-logged-in={isLoggedIn ? "true" : "false"}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#00876c">
-  <meta name="description" content="Milk Hissab - The ultimate daily milk delivery tracker, expense manager, personal notes, and secure password manager. Track your daily doodh ka hissab easily.">
-  <meta name="keywords" content="daily milk delivery tracker, milk accounting app, doodh ka hissab, expense manager, password manager, personal notes, milk ledger">
-  <meta property="og:title" content="Milk Hissab - Daily Tracker & Manager">
-  <meta property="og:description" content="Track milk delivery, manage expenses, save notes, and store passwords securely in one place.">
+  <meta name="theme-color" content="#0d9488">
+  <meta name="description" content="MYDASHBOARD.CO.IN - The ultimate multi-utility portal and personal ledger workspace. Manage everything in one dashboard: milk logs, notes, budgets, password vaults, and utility calculations.">
+  <meta name="keywords" content="personal ledger, notes, expense tracker, password generator, milk delivery logs, online calculators, utility workspace">
+  <meta property="og:title" content="MYDASHBOARD.CO.IN - manage everything. one dashboard.">
+  <meta property="og:description" content="Secure personal ledgers, quick checklists notes, expense logs, secure vaults, and smart calculation utilities in one dashboard.">
   <meta property="og:type" content="website">
   <meta name="color-scheme" content="dark light">
   <title>{title}</title>
+  {accentColor && (
+    <style is:inline set:html={`
+      :root, [data-theme="light"], [data-theme="dark"] {
+        --accent-primary: ${accentColor} !important;
+        --accent-secondary: ${accentColor} !important;
+      }
+    `} />
+  )}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🥛</text></svg>">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="manifest" href="/manifest.webmanifest">
   <script is:inline>
     (function() {
-      const theme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      // 1. Theme Configuration
+      const themePref = localStorage.getItem('app_theme') || 'system';
+      let theme = themePref;
+      if (themePref === 'system') {
+        theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
       document.documentElement.setAttribute('data-theme', theme);
+
+      // 2. Default Open App Redirect (Run only on home route '/')
+      if (window.location.pathname === '/') {
+        const defaultApp = localStorage.getItem('default_open_app');
+        const override = sessionStorage.getItem('dashboard_override');
+        if (defaultApp && defaultApp !== 'none' && override !== 'true') {
+          const urlMap = {
+            milk: '/milk',
+            expenses: '/expenses',
+            notes: '/notes',
+            passwords: '/passwords',
+            calculator: '/calculator',
+            'age-calculator': '/age-calculator'
+          };
+          const target = urlMap[defaultApp];
+          if (target) {
+            window.location.replace(target);
+          }
+        }
+      } else {
+        // Clear override when on other pages
+        sessionStorage.removeItem('dashboard_override');
+      }
     })();
   </script>
 </head>
 <body>
   <nav class="main-nav">
     <div class="container flex gap-4 items-center">
-      <a href="/" class="nav-link">{Astro.locals.user ? '🥛 Milk' : '🏠 Home'}</a>
-      {Astro.locals.user && (
-        <>
-          <a href="/expenses" class="nav-link">💸 Expenses</a>
-          <a href="/notes" class="nav-link">📝 Notes</a>
-          <a href="/passwords" class="nav-link">🔑 Passwords</a>
-        </>
-      )}
+      <!-- Brand Logo / Name -->
+      <a href="/" class="nav-brand flex items-center gap-2" style="text-decoration: none;">
+        <span style="font-size: 1.5rem; filter: drop-shadow(0 2px 6px rgba(13, 148, 136, 0.25));">🎛️</span>
+        <strong style="letter-spacing: -0.03em; font-weight: 800; font-size: 1.15rem; color: var(--accent-primary); background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">MYDASHBOARD.CO.IN</strong>
+      </a>
+
+      <!-- Desktop Nav Links -->
+      <div class="desktop-nav-links flex gap-2">
+        <a href="/" class="nav-link">🏠 Dashboard</a>
+        {Astro.locals.user && (
+          <>
+            <a href="/milk" class="nav-link">🥛 Milk Ledger</a>
+            <a href="/expenses" class="nav-link">💸 Expenses</a>
+            <a href="/notes" class="nav-link">📝 Notes</a>
+            <a href="/passwords" class="nav-link">🔑 Passwords</a>
+          </>
+        )}
+      </div>
       
+      <!-- Right side controls (Theme & Settings & Auth) -->
       <div class="flex gap-2 ml-auto items-center">
         <button id="theme-toggle" class="btn-icon" aria-label="Toggle Theme" title="Toggle Dark/Light Mode">
           <span class="dark-icon">🌙</span>
           <span class="light-icon">☀️</span>
         </button>
 
-        {!Astro.locals.user && (
-          <>
+        <button id="settings-toggle" class="btn-icon" aria-label="Settings" title="Configure App Settings">
+          <span>⚙️</span>
+        </button>
+
+        {Astro.locals.user ? (
+          <form action="/api/auth/logout" method="POST" style="margin: 0; display: inline-flex;">
+            <button type="submit" class="btn btn-secondary btn-sm logout-btn">Logout</button>
+          </form>
+        ) : (
+          <div class="desktop-auth-links flex gap-2">
             <a href="/login" class="nav-link">Login</a>
             <a href="/register" class="btn btn-primary btn-sm" style="padding: 0.4rem 1rem;">Sign Up</a>
-          </>
+          </div>
         )}
       </div>
     </div>
   </nav>
+
+  <!-- Mobile Bottom Navigation Bar -->
+  <nav class="mobile-bottom-nav">
+    <!-- Populated dynamically by buildBottomNav script -->
+  </nav>
+
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">⚙️ App Settings</h3>
+        <button class="modal-close" id="closeSettingsBtn">&times;</button>
+      </div>
+      <div class="modal-body space-y-4">
+        <!-- Theme Selection -->
+        <div>
+          <label class="form-label" for="settingsTheme">Default Theme</label>
+          <select id="settingsTheme" class="form-select">
+            <option value="system">System Default 🖥️</option>
+            <option value="dark">Dark Theme 🌙</option>
+            <option value="light">Light Theme ☀️</option>
+          </select>
+        </div>
+
+        <!-- Default Open App Selection -->
+        <div>
+          <label class="form-label" for="settingsDefaultOpen">Default Launch Page</label>
+          <select id="settingsDefaultOpen" class="form-select">
+            <option value="none">Dashboard Portal (Home)</option>
+            <option value="milk">Milk Ledger</option>
+            <option value="expenses">Expense Manager</option>
+            <option value="notes">Quick Notes</option>
+            <option value="passwords">Password Vault</option>
+            <option value="calculator">Smart Calculator</option>
+            <option value="age-calculator">Age Calculator</option>
+          </select>
+          <span class="text-xs text-muted mt-1" style="display:block;">The app will load this page automatically when visited.</span>
+        </div>
+
+        <!-- Pin Apps checklist -->
+        <div>
+          <label class="form-label">Pin 4 Apps to Bottom Nav Bar</label>
+          <div class="pin-apps-list mt-2" id="settingsPinContainer">
+            <!-- Dynamically populated checklist -->
+          </div>
+          <span id="pinWarning" class="text-xs text-accent mt-2" style="display:block; color: var(--accent-danger);">Please select exactly 4 items to pin.</span>
+        </div>
+
+        <div class="flex gap-3 pt-2">
+          <button class="btn btn-secondary btn-sm" id="cancelSettingsBtn" style="flex:1;">Cancel</button>
+          <button class="btn btn-primary btn-sm" id="saveSettingsBtn" style="flex:1;">Save Settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <slot />
 </body>
 
@@ -111,25 +224,331 @@ const { title } = Astro.props;
     background: var(--accent-primary);
     color: white;
   }
+
+  /* Mobile Bottom Navigation Styles */
+  .mobile-bottom-nav {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    background: var(--glass-bg);
+    border-top: 1px solid var(--border-subtle);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    z-index: 1000;
+    justify-content: space-around;
+    align-items: center;
+    padding: 0 0.25rem;
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.2);
+  }
+
+  .mobile-nav-link {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    color: var(--text-secondary);
+    font-size: 0.65rem;
+    font-weight: 600;
+    flex: 1;
+    height: 100%;
+    gap: 0.15rem;
+    transition: all 0.15s ease;
+  }
+
+  .mobile-nav-icon {
+    font-size: 1.25rem;
+    transition: transform 0.15s;
+  }
+
+  .mobile-nav-link:active .mobile-nav-icon {
+    transform: scale(0.9);
+  }
+
+  .mobile-nav-link.active {
+    color: var(--accent-primary);
+  }
+  
+  .mobile-nav-link.active .mobile-nav-icon {
+    transform: scale(1.1) translateY(-2px);
+    filter: drop-shadow(0 2px 6px color-mix(in srgb, var(--accent-primary) 35%, transparent));
+  }
+
+  .logout-btn {
+    padding: 0.4rem 0.8rem;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Settings Grid Styles */
+  .pin-apps-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+  }
+
+  .pin-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-surface-hover);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 0.8rem;
+    user-select: none;
+    transition: border-color 0.15s;
+  }
+
+  .pin-checkbox-label:hover {
+    border-color: var(--accent-primary);
+  }
+
+  .pin-checkbox-label input {
+    accent-color: var(--accent-primary);
+  }
+
+  /* Responsive layout adjustments */
+  @media (max-width: 768px) {
+    .mobile-bottom-nav {
+      display: flex;
+    }
+    body {
+      padding-bottom: 70px;
+    }
+    .desktop-nav-links, .desktop-auth-links {
+      display: none !important;
+    }
+    .main-nav {
+      padding: 0.5rem 0;
+      margin-bottom: 1rem;
+    }
+    .logout-btn {
+      font-size: 0.75rem;
+      padding: 0.3rem 0.6rem;
+    }
+  }
 </style>
 
 <script>
-  // Highlight active nav link
-  const path = window.location.pathname;
-  document.querySelectorAll('.nav-link').forEach(link => {
-    if (link.getAttribute('href') === path) {
+  // ─── Constants & Dynamic Bottom Nav Config ───
+  const ALL_ITEMS = {
+    home: { name: 'Home', icon: '🏠', href: '/' },
+    milk: { name: 'Milk', icon: '🥛', href: '/milk' },
+    expenses: { name: 'Expenses', icon: '💸', href: '/expenses' },
+    notes: { name: 'Notes', icon: '📝', href: '/notes' },
+    passwords: { name: 'Vault', icon: '🔑', href: '/passwords' },
+    calculator: { name: 'Calc', icon: '📊', href: '/calculator' },
+    'age-calculator': { name: 'Age', icon: '🎂', href: '/age-calculator' },
+    login: { name: 'Login', icon: '👤', href: '/login' }
+  };
+
+  const isLoggedIn = document.documentElement.getAttribute('data-logged-in') === 'true';
+
+  function buildBottomNav() {
+    const mobileNav = document.querySelector('.mobile-bottom-nav');
+    if (!mobileNav) return;
+    
+    let pinned = [];
+    try {
+      pinned = JSON.parse(localStorage.getItem('pinned_apps') || '[]');
+    } catch(e) {}
+    
+    // Ensure pinned apps only contain allowed ones for current auth state
+    const allowedKeys = isLoggedIn 
+      ? ['home', 'milk', 'expenses', 'notes', 'passwords', 'calculator', 'age-calculator']
+      : ['home', 'calculator', 'age-calculator', 'login'];
+      
+    if (pinned && Array.isArray(pinned)) {
+      pinned = pinned.filter(id => allowedKeys.includes(id));
+    }
+    
+    if (!pinned || !Array.isArray(pinned) || pinned.length !== 4) {
+      pinned = isLoggedIn 
+        ? ['home', 'milk', 'expenses', 'notes'] 
+        : ['home', 'calculator', 'age-calculator', 'login'];
+      localStorage.setItem('pinned_apps', JSON.stringify(pinned));
+    }
+
+    const path = window.location.pathname;
+    mobileNav.innerHTML = pinned.map(id => {
+      const item = (ALL_ITEMS as any)[id];
+      if (!item) return '';
+      const isActive = path === item.href || (item.href !== '/' && path.startsWith(item.href));
+      return `
+        <a href="${item.href}" class="mobile-nav-link ${isActive ? 'active' : ''}">
+          <span class="mobile-nav-icon">${item.icon}</span>
+          <span class="mobile-nav-text">${item.name}</span>
+        </a>
+      `;
+    }).join('');
+    
+    // Bind click events on home links to save override
+    mobileNav.querySelectorAll('a[href="/"]').forEach(link => {
+      link.addEventListener('click', () => {
+        sessionStorage.setItem('dashboard_override', 'true');
+      });
+    });
+  }
+
+  // Build nav on start
+  buildBottomNav();
+
+  // Desktop Home Link dashboard override
+  document.querySelectorAll('.desktop-nav-links a[href="/"], .nav-brand').forEach(link => {
+    link.addEventListener('click', () => {
+      sessionStorage.setItem('dashboard_override', 'true');
+    });
+  });
+
+  // Highlight active desktop links
+  const currentPath = window.location.pathname;
+  document.querySelectorAll('.desktop-nav-links .nav-link').forEach(link => {
+    const href = link.getAttribute('href');
+    if (href === currentPath || (href !== '/' && currentPath.startsWith(href || ''))) {
       link.classList.add('active');
     }
   });
 
-  // Theme Toggle Logic
+  // Theme Toggle Button (Cycles system -> dark -> light -> system)
   const themeToggle = document.getElementById('theme-toggle');
   themeToggle?.addEventListener('click', () => {
     const currentTheme = document.documentElement.getAttribute('data-theme');
     const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
     
     document.documentElement.setAttribute('data-theme', newTheme);
-    localStorage.setItem('theme', newTheme);
+    localStorage.setItem('app_theme', newTheme);
+    localStorage.setItem('theme', newTheme); // backward compatibility
+    
+    const themeSelect = document.getElementById('settingsTheme') as HTMLSelectElement;
+    if (themeSelect) themeSelect.value = newTheme;
+  });
+
+  // ─── Settings Panel Functionality ───
+  const settingsModal = document.getElementById('settingsModal') as HTMLDivElement;
+  const settingsToggle = document.getElementById('settings-toggle');
+  const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+  const cancelSettingsBtn = document.getElementById('cancelSettingsBtn');
+  const saveSettingsBtn = document.getElementById('saveSettingsBtn') as HTMLButtonElement;
+  
+  const settingsTheme = document.getElementById('settingsTheme') as HTMLSelectElement;
+  const settingsDefaultOpen = document.getElementById('settingsDefaultOpen') as HTMLSelectElement;
+  const settingsPinContainer = document.getElementById('settingsPinContainer') as HTMLDivElement;
+  const pinWarning = document.getElementById('pinWarning') as HTMLSpanElement;
+
+  const PIN_OPTIONS = isLoggedIn 
+    ? [
+        { id: 'home', name: 'Home 🏠' },
+        { id: 'milk', name: 'Milk Ledger 🥛' },
+        { id: 'expenses', name: 'Expenses 💸' },
+        { id: 'notes', name: 'Notes 📝' },
+        { id: 'passwords', name: 'Vault 🔑' },
+        { id: 'calculator', name: 'Calculator 📊' },
+        { id: 'age-calculator', name: 'Age 🎂' }
+      ]
+    : [
+        { id: 'home', name: 'Home 🏠' },
+        { id: 'calculator', name: 'Calculator 📊' },
+        { id: 'age-calculator', name: 'Age 🎂' },
+        { id: 'login', name: 'Login 👤' }
+      ];
+
+  function openSettings() {
+    // 1. Set values from localStorage
+    settingsTheme.value = localStorage.getItem('app_theme') || 'system';
+    settingsDefaultOpen.value = localStorage.getItem('default_open_app') || 'none';
+    
+    // 2. Populate pinning checklist
+    let pinned: string[] = [];
+    try {
+      pinned = JSON.parse(localStorage.getItem('pinned_apps') || '[]');
+    } catch(e) {}
+    
+    const allowedKeys = isLoggedIn 
+      ? ['home', 'milk', 'expenses', 'notes', 'passwords', 'calculator', 'age-calculator']
+      : ['home', 'calculator', 'age-calculator', 'login'];
+      
+    if (pinned && Array.isArray(pinned)) {
+      pinned = pinned.filter(id => allowedKeys.includes(id));
+    }
+    
+    if (!pinned || pinned.length !== 4) {
+      pinned = isLoggedIn 
+        ? ['home', 'milk', 'expenses', 'notes'] 
+        : ['home', 'calculator', 'age-calculator', 'login'];
+    }
+
+    settingsPinContainer.innerHTML = PIN_OPTIONS.map(opt => `
+      <label class="pin-checkbox-label">
+        <input type="checkbox" name="pinApp" value="${opt.id}" ${pinned.includes(opt.id) ? 'checked' : ''}>
+        <span>${opt.name}</span>
+      </label>
+    `).join('');
+
+    // Bind checklist validator
+    bindChecklistValidator();
+    validateChecklist();
+
+    settingsModal.style.display = 'flex';
+  }
+
+  function closeSettings() {
+    settingsModal.style.display = 'none';
+  }
+
+  function validateChecklist() {
+    const checks = settingsPinContainer.querySelectorAll('input[name="pinApp"]:checked');
+    if (checks.length === 4) {
+      saveSettingsBtn.disabled = false;
+      pinWarning.style.color = 'var(--text-muted)';
+      pinWarning.textContent = 'Awesome! Exactly 4 apps selected.';
+    } else {
+      saveSettingsBtn.disabled = true;
+      pinWarning.style.color = 'var(--accent-danger)';
+      pinWarning.textContent = `Selected: ${checks.length} of 4. Choose exactly 4.`;
+    }
+  }
+
+  function bindChecklistValidator() {
+    settingsPinContainer.querySelectorAll('input[name="pinApp"]').forEach(checkbox => {
+      checkbox.addEventListener('change', validateChecklist);
+    });
+  }
+
+  settingsToggle?.addEventListener('click', openSettings);
+  closeSettingsBtn?.addEventListener('click', closeSettings);
+  cancelSettingsBtn?.addEventListener('click', closeSettings);
+  
+  settingsModal?.addEventListener('click', (e) => {
+    if (e.target === settingsModal) closeSettings();
+  });
+
+  saveSettingsBtn?.addEventListener('click', () => {
+    // 1. Save theme
+    const themeVal = settingsTheme.value;
+    localStorage.setItem('app_theme', themeVal);
+    let systemTheme = themeVal;
+    if (themeVal === 'system') {
+      systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    document.documentElement.setAttribute('data-theme', systemTheme);
+    localStorage.setItem('theme', systemTheme); // backward compatibility
+
+    // 2. Save launch page
+    localStorage.setItem('default_open_app', settingsDefaultOpen.value);
+
+    // 3. Save pinned apps
+    const checked = Array.from(settingsPinContainer.querySelectorAll('input[name="pinApp"]:checked')) as HTMLInputElement[];
+    const pinned = checked.map(c => c.value);
+    localStorage.setItem('pinned_apps', JSON.stringify(pinned));
+
+    // Close and reload nav bar & settings override
+    closeSettings();
+    buildBottomNav();
+    window.location.reload();
   });
 </script>
 </html>

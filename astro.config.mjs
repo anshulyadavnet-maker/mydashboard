@@ -17,8 +17,8 @@ export default defineConfig({
       includeAssets: ['favicon.svg'],
       registerType: 'autoUpdate',
       manifest: {
-        name: 'Milk Hissab - Daily Tracker',
-        short_name: 'Milk Hissab',
+        name: 'My Dashboard tracker',
+        short_name: 'My Dashboard',
         description: 'Track daily milk delivery, expenses, notes, and passwords.',
         theme_color: '#00d4aa',
         background_color: '#0a0a0b',
@@ -57,7 +57,7 @@ export default defineConfig({
   },
   vite: {
     ssr: {
-      noExternal: ['bcryptjs'],
+      noExternal: ['jose', ...(process.env.NODE_ENV === 'production' ? ['bcryptjs'] : [])],
     },
   },
 });

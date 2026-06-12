@@ -114,3 +114,15 @@ CREATE INDEX IF NOT EXISTS idx_accounts_user_date ON milk_accounts(user_id, year
 CREATE INDEX IF NOT EXISTS idx_entries_account ON milk_entries(account_id);
 CREATE INDEX IF NOT EXISTS idx_payments_account ON milk_payments(account_id);
 CREATE INDEX IF NOT EXISTS idx_suppliers_user ON milk_suppliers(user_id);
+
+-- Tool usage tracking table
+CREATE TABLE IF NOT EXISTS tool_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  tool_id TEXT NOT NULL,
+  use_count INTEGER DEFAULT 0,
+  last_used_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(user_id, tool_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_usage_user ON tool_usage(user_id);

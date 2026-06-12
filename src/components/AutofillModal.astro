@@ -15,7 +15,7 @@ const { pending } = Astro.props;
       <p class="text-muted text-sm">The following accounts have missing auto-generation entries for the selected period:</p>
       <div id="autofillList" class="mb-4">
         {pending.map((af: any) => (
-          <div class="glass-card p-2 mb-2" style="border:1px solid rgba(0, 135, 108, 0.2);">
+          <div class="glass-card p-2 mb-2" style="border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);">
             <div class="flex-between">
               <div>
                 <div class="fw-bold">{af.supplier_name} ({af.category_name})</div>

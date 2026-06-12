@@ -342,3 +342,21 @@ export async function deletePassword(db: D1Database, passwordId: number, userId:
   await db.prepare('DELETE FROM passwords WHERE id = ? AND user_id = ?').bind(passwordId, userId).run();
 }
 
+// Tool Usage Tracking Helpers
+export async function recordToolUsage(db: D1Database, userId: number, toolId: string) {
+  await db.prepare(`
+    INSERT INTO tool_usage (user_id, tool_id, use_count, last_used_at)
+    VALUES (?, ?, 1, datetime('now'))
+    ON CONFLICT(user_id, tool_id) DO UPDATE SET
+      use_count = use_count + 1,
+      last_used_at = datetime('now')
+  `).bind(userId, toolId).run();
+}
+
+export async function getToolUsage(db: D1Database, userId: number) {
+  const result = await db.prepare(
+    'SELECT tool_id, use_count, last_used_at FROM tool_usage WHERE user_id = ?'
+  ).bind(userId).all();
+  return result.results;
+}
+
