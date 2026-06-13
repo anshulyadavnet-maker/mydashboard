@@ -244,6 +244,14 @@ const homeSchema = {
       "description": "Secure personal ledgers, quick checklists notes, expense logs, secure vaults, and smart calculation utilities in one dashboard.",
       "publisher": {
         "@id": "https://mydashboard.co.in/#organization"
+      },
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": {
+          "@type": "EntryPoint",
+          "urlTemplate": "https://mydashboard.co.in/?q={search_term_string}"
+        },
+        "query-input": "required name=search_term_string"
       }
     }
   ]
@@ -254,7 +262,7 @@ const homeSchema = {
   description="Manage your daily milk delivery ledgers (Doodh ka Hissab), monthly expenses, passwords, secure notes, and use online calculators in one place."
   schema={homeSchema}
 >
-  <div class="container animate-fade-in pb-12">
+  <main class="container animate-fade-in pb-12">
     <!-- Hero / Header -->
     <header class="dashboard-hero py-6 mb-6 text-center glass-card p-6">
       {loggedIn ? (
@@ -286,7 +294,7 @@ const homeSchema = {
     <!-- Grid Header -->
     <div class="flex-between mb-4">
       <div>
-        <h2 class="h5 m-0">🛠️ Workspace Tools &amp; Utilities</h2>
+        <h2 class="h3 m-0" style="font-size: 1.25rem;">🛠️ Workspace Tools &amp; Utilities</h2>
         <p class="text-muted text-xs">Listed in order of your usage frequency.</p>
       </div>
       {loggedIn && (
@@ -315,7 +323,7 @@ const homeSchema = {
                 {tool.icon}
               </div>
               <div class="tool-content">
-                <h3 class="h5 mb-1 tool-title flex-between">
+                <h3 class="h4 mb-1 tool-title flex-between" style="font-size: 1.1rem;">
                   <span>{tool.name}</span>
                   <span class="tool-status flex gap-1">
                     {tool.isUpcoming ? (
@@ -349,7 +357,7 @@ const homeSchema = {
     <!-- Search Engine Optimization (SEO) Content Panel -->
     <article class="glass-card p-6 mt-8" style="margin-top: 2rem;">
       <header class="mb-4">
-        <h2 class="h4 text-accent mb-2" style="font-weight: 800;">MYDASHBOARD.CO.IN — Manage Everything. One Dashboard.</h2>
+        <h2 class="h3 text-accent mb-2" style="font-weight: 800; font-size: 1.4rem;">MYDASHBOARD.CO.IN — Manage Everything. One Dashboard.</h2>
         <p class="text-xs text-muted leading-relaxed">
           Welcome to the ultimate personal utility workspace and daily bookkeeping portal. Built mobile-first for high performance, security, and convenience, <strong>MYDASHBOARD.CO.IN</strong> consolidates your essential tracking logs, secure credentials vaults, quick notes, and utility calculations into a single, lightning-fast workspace.
         </p>
@@ -399,21 +407,7 @@ const homeSchema = {
         </div>
       </div>
     </article>
-  </div>
-
-  <!-- Revenue Generation Ad Banner Placeholder -->
-  <div class="container pb-6">
-    <div class="ad-banner glass-card p-4 text-center">
-      <span class="ad-tag">SPONSORED ADVERTISEMENT</span>
-      <div class="ad-box">
-        <span class="ad-icon">💰</span>
-        <div>
-          <p class="text-xs fw-bold" style="color: var(--accent-primary); margin: 0;">Advertisement Space Reserved</p>
-          <p class="text-xs text-muted" style="margin: 2px 0 0 0;">Earn revenue by placing Google AdSense, Ezoic, or custom banners here later.</p>
-        </div>
-      </div>
-    </div>
-  </div>
+  </main>
 
   <!-- Dynamic Upcoming Tool Modal -->
   <div id="upcomingModal" class="modal-overlay" style="display:none;">

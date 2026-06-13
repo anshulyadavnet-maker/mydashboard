@@ -148,7 +148,7 @@ const daysArray = Array.from({ length: 31 }, (_, i) => i + 1);
     }
   </style>
   {isLoggedIn ? (
-    <div class="container animate-fade-in pb-4">
+    <main class="container animate-fade-in pb-4">
       <Header month={month} year={year} monthName={monthName} />
 
       <!-- Filters -->
@@ -269,10 +269,10 @@ const daysArray = Array.from({ length: 31 }, (_, i) => i + 1);
       {paymentHistoryList && paymentHistoryList.length > 0 && (
         <PaymentHistory payments={paymentHistoryList} />
       )}
-    </div>
+    </main>
   ) : (
     <!-- Public SEO Landing Page -->
-    <div class="container animate-fade-in pb-12">
+    <main class="container animate-fade-in pb-12">
       <div class="dashboard-hero py-12 mb-8 text-center glass-card p-8">
         <span class="badge mb-2">🥛 Daily Bookkeeping Utility</span>
         <h1 class="h1 mb-2" style="font-weight: 800; letter-spacing: -0.02em;">Online Milk Ledger &amp; Delivery Register</h1>
@@ -340,7 +340,7 @@ const daysArray = Array.from({ length: 31 }, (_, i) => i + 1);
           </div>
         </div>
       </section>
-    </div>
+    </main>
   )}
 
   <AddAccountModal suppliers={suppliersList || []} categories={categoriesList || []} month={month} year={year} />

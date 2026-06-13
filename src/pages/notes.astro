@@ -52,7 +52,7 @@ const notesSchema = {
   accentColor="#d97706"
 >
   {isLoggedIn ? (
-    <div class="container animate-fade-in pb-4">
+    <main class="container animate-fade-in pb-4">
       <div class="flex-between mb-4 flex-wrap gap-4">
         <div>
           <h1 class="h2 mb-1">📝 Notes</h1>
@@ -173,10 +173,10 @@ const notesSchema = {
           </div>
         </div>
       </div>
-    </div>
+    </main>
   ) : (
     <!-- Public SEO Landing Page -->
-    <div class="container animate-fade-in pb-12">
+    <main class="container animate-fade-in pb-12">
       <div class="dashboard-hero py-12 mb-8 text-center glass-card p-8">
         <span class="badge mb-2">📝 Note taking Utility</span>
         <h1 class="h1 mb-2" style="font-weight: 800; letter-spacing: -0.02em;">Online Quick Notes &amp; Sticky Notepad</h1>
@@ -238,7 +238,7 @@ const notesSchema = {
           </div>
         </div>
       </section>
-    </div>
+    </main>
   )}
 </Layout>
 

@@ -66,7 +66,7 @@ const monthName = monthNames[month - 1];
   accentColor="#e11d48"
 >
   {isLoggedIn ? (
-    <div class="container animate-fade-in pb-4">
+    <main class="container animate-fade-in pb-4">
       <div class="flex-between mb-4 flex-wrap gap-4">
         <div>
           <h1 class="h2 mb-1">💸 Expenses</h1>
@@ -198,10 +198,10 @@ const monthName = monthNames[month - 1];
           </div>
         </div>
       </div>
-    </div>
+    </main>
   ) : (
     <!-- Public SEO Landing Page -->
-    <div class="container animate-fade-in pb-12">
+    <main class="container animate-fade-in pb-12">
       <div class="dashboard-hero py-12 mb-8 text-center glass-card p-8">
         <span class="badge mb-2">💸 Expense Management Utility</span>
         <h1 class="h1 mb-2" style="font-weight: 800; letter-spacing: -0.02em;">Online Expense Manager &amp; Budget Tracker</h1>
@@ -263,7 +263,7 @@ const monthName = monthNames[month - 1];
           </div>
         </div>
       </section>
-    </div>
+    </main>
   )}
 </Layout>
 
