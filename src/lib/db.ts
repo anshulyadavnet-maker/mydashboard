@@ -171,8 +171,8 @@ export async function bulkAutofill(db: D1Database, accountId: number, quantity: 
   const today = getLocalDateString();
   const monthEnd = `${year}-${String(month).padStart(2, '0')}-${new Date(year, month, 0).getDate()}`;
   const effectiveEnd = [today, endDate, monthEnd].sort()[0];
-  const start = new Date(startDate + 'T00:00:00');
-  const end = new Date(effectiveEnd + 'T00:00:00');
+  const start = new Date(startDate + 'T00:00:00Z');
+  const end = new Date(effectiveEnd + 'T00:00:00Z');
   const existing = await db.prepare(
     'SELECT entry_date FROM milk_entries WHERE account_id = ? AND entry_date >= ? AND entry_date <= ?'
   ).bind(accountId, startDate, effectiveEnd).all();
@@ -182,16 +182,16 @@ export async function bulkAutofill(db: D1Database, accountId: number, quantity: 
   const stmts: any[] = [];
   const current = new Date(start);
   while (current <= end) {
-    const dateStr = getLocalDateString(current);
-    if (existingDates.has(dateStr)) { current.setDate(current.getDate() + 1); continue; }
+    const dateStr = current.toISOString().split('T')[0];
+    if (existingDates.has(dateStr)) { current.setUTCDate(current.getUTCDate() + 1); continue; }
     if (dateStr === today) {
-      const targetTime = new Date(today + `T${String(autoHour).padStart(2, '0')}:${String(autoMin).padStart(2, '0')}:00`);
-      if (now < targetTime) { current.setDate(current.getDate() + 1); continue; }
+      const targetTime = new Date(today + `T${String(autoHour).padStart(2, '0')}:${String(autoMin).padStart(2, '0')}:00+05:30`);
+      if (now < targetTime) { current.setUTCDate(current.getUTCDate() + 1); continue; }
     }
     stmts.push(db.prepare(
       'INSERT INTO milk_entries (account_id, entry_date, quantity, entry_type) VALUES (?, ?, ?, ?) ON CONFLICT(account_id, entry_date) DO NOTHING'
     ).bind(accountId, dateStr, quantity, 'auto'));
-    current.setDate(current.getDate() + 1);
+    current.setUTCDate(current.getUTCDate() + 1);
   }
   for (let i = 0; i < stmts.length; i += 10) {
     const batch = stmts.slice(i, i + 10);

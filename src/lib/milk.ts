@@ -23,10 +23,15 @@ export interface PendingAutofill {
 }
 
 export function getLocalDateString(date: Date = new Date()): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = formatter.formatToParts(date);
+  const partMap = Object.fromEntries(parts.map(p => [p.type, p.value]));
+  return `${partMap.year}-${partMap.month}-${partMap.day}`;
 }
 
 export function daysInMonth(year: number, month: number): number {
@@ -39,18 +44,18 @@ export function previousMonth(year: number, month: number): { year: number; mont
 }
 
 export function formatRange(start: string, end: string): string {
-  const s = new Date(start + 'T00:00:00');
-  const e = new Date(end + 'T00:00:00');
+  const s = new Date(start + 'T00:00:00Z');
+  const e = new Date(end + 'T00:00:00Z');
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const sStr = `${months[s.getMonth()]} ${s.getDate()}`;
-  const eStr = `${months[e.getMonth()]} ${e.getDate()}`;
+  const sStr = `${months[s.getUTCMonth()]} ${s.getUTCDate()}`;
+  const eStr = `${months[e.getUTCMonth()]} ${e.getUTCDate()}`;
   return sStr === eStr ? sStr : `${sStr} to ${eStr}`;
 }
 
 export function buildMatrixRow(account: any, dbEntries: any[], daysInMonth: number, totalPayments: number): MatrixRow {
   const entriesMap: Record<number, { q: number; type: 'auto' | 'manual' | 'none' }> = {};
   for (const entry of dbEntries) {
-    const day = new Date(entry.entry_date + 'T00:00:00').getDate();
+    const day = new Date(entry.entry_date + 'T00:00:00Z').getUTCDate();
     entriesMap[day] = { q: Number(entry.quantity) || 0, type: (entry.entry_type === 'manual' ? 'manual' : 'auto') as 'manual' | 'auto' };
   }
   const entries: Record<number, EntryCell> = {};
@@ -85,20 +90,20 @@ export function detectMissingAutofills(
   const startStr = account.start_date && account.start_date > monthStart ? account.start_date : monthStart;
   const endStr = account.end_date && account.end_date < monthEnd ? account.end_date : monthEnd;
   const effectiveEnd = endStr < today ? endStr : today;
-  const start = new Date(startStr + 'T00:00:00');
-  const end = new Date(effectiveEnd + 'T00:00:00');
+  const start = new Date(startStr + 'T00:00:00Z');
+  const end = new Date(effectiveEnd + 'T00:00:00Z');
   const missingDates: string[] = [];
   const current = new Date(start);
   while (current <= end) {
-    const dateStr = getLocalDateString(current);
+    const dateStr = current.toISOString().split('T')[0];
     if (!existingDates.has(dateStr)) {
       if (dateStr === today) {
-        const targetTime = new Date(today + `T${String(autoHour).padStart(2, '0')}:${String(autoMin).padStart(2, '0')}:00`);
-        if (now < targetTime) { current.setDate(current.getDate() + 1); continue; }
+        const targetTime = new Date(today + `T${String(autoHour).padStart(2, '0')}:${String(autoMin).padStart(2, '0')}:00+05:30`);
+        if (now < targetTime) { current.setUTCDate(current.getUTCDate() + 1); continue; }
       }
       missingDates.push(dateStr);
     }
-    current.setDate(current.getDate() + 1);
+    current.setUTCDate(current.getUTCDate() + 1);
   }
   if (missingDates.length === 0) return { missingDates: [], pending: null };
   return {
