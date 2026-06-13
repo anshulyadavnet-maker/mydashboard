@@ -221,8 +221,39 @@ if (user) {
     console.error('Error fetching tool usage from database:', err);
   }
 }
+
+const homeSchema = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://mydashboard.co.in/#organization",
+      "name": "My Dashboard",
+      "url": "https://mydashboard.co.in/",
+      "logo": {
+        "@type": "ImageObject",
+        "url": "https://mydashboard.co.in/favicon.svg",
+        "caption": "My Dashboard Logo"
+      }
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://mydashboard.co.in/#website",
+      "url": "https://mydashboard.co.in/",
+      "name": "My Dashboard",
+      "description": "Secure personal ledgers, quick checklists notes, expense logs, secure vaults, and smart calculation utilities in one dashboard.",
+      "publisher": {
+        "@id": "https://mydashboard.co.in/#organization"
+      }
+    }
+  ]
+};
 ---
-<Layout title="MYDASHBOARD.CO.IN - manage everything. one dashboard.">
+<Layout 
+  title="MYDASHBOARD.CO.IN - Manage Everything. One Dashboard."
+  description="Manage your daily milk delivery ledgers (Doodh ka Hissab), monthly expenses, passwords, secure notes, and use online calculators in one place."
+  schema={homeSchema}
+>
   <div class="container animate-fade-in pb-12">
     <!-- Hero / Header -->
     <header class="dashboard-hero py-6 mb-6 text-center glass-card p-6">

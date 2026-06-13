@@ -11,8 +11,25 @@ if (user) {
     console.error('Failed to record tool usage:', err);
   }
 }
+
+const ageSchema = {
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Age Calculator",
+  "url": "https://mydashboard.co.in/age-calculator",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "All",
+  "browserRequirements": "Requires JavaScript",
+  "description": "Calculate your exact age in years, months, weeks, days, hours, and minutes from your date of birth. Find your next upcoming birthday."
+};
 ---
-<Layout title="Age Calculator - MYDASHBOARD.CO.IN" accentColor="#10b981">
+<Layout 
+  title="Age Calculator - Calculate Exact Age Online | My Dashboard" 
+  description="Free online Age Calculator. Calculate your exact age in years, months, days, and find out how many days are left until your next birthday."
+  keywords="age calculator, calculate age, how old am i, birthday countdown, exact age calculator, age in days, chronological age"
+  schema={ageSchema}
+  accentColor="#10b981"
+>
   <script is:inline>
     // Track local storage usage for anonymous sorting
     (function() {

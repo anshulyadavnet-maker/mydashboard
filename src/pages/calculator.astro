@@ -11,8 +11,25 @@ if (user) {
     console.error('Failed to record tool usage:', err);
   }
 }
+
+const calculatorSchema = {
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Smart Calculator",
+  "url": "https://mydashboard.co.in/calculator",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "All",
+  "browserRequirements": "Requires JavaScript",
+  "description": "An online smart scientific calculator with history log, unit converters, memory functions, and dark mode theme."
+};
 ---
-<Layout title="Online Calculator - MYDASHBOARD.CO.IN" accentColor="#64748b">
+<Layout 
+  title="Online Calculator - Smart Scientific Calculator | My Dashboard" 
+  description="Use our free online scientific calculator. Perform basic arithmetic, trigonometric calculations, use percentage functions, and track your calculation history."
+  keywords="online calculator, scientific calculator, free calculator, math calculator, online calc, calculator with history, scientific calc online"
+  schema={calculatorSchema}
+  accentColor="#64748b"
+>
   <script is:inline>
     // Track local storage usage for anonymous sorting
     (function() {

@@ -100,10 +100,47 @@ if (isLoggedIn) {
   monthName = monthNamesList[month - 1];
 }
 
+const milkSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What is Doodh ka Hissab?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Doodh ka Hissab is the traditional method of ledger tracking for daily milk deliveries. Our digital ledger replaces paper calendars and dairies with a highly secure, automated edge platform."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I manage multiple milk suppliers?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes! You can add multiple supplier accounts, set different rates for each, and track individual payouts, cash entries, and total due balances in a single window."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is this tool free to use?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. All smart calculations, ledgers, checklists, and vaults on MYDASHBOARD.CO.IN are completely free. Secure workspaces require a simple free account to save details safely on Cloudflare."
+      }
+    }
+  ]
+};
+
 const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const daysArray = Array.from({ length: 31 }, (_, i) => i + 1);
 ---
-<Layout title={`${monthName} ${year} - Milk Ledger`} accentColor="#0284c7">
+<Layout 
+  title={`${monthName} ${year} - Online Milk Ledger & Delivery Register`} 
+  description="Manage daily milk delivery records (Doodh ka Hissab), category rates, milk suppliers, monthly calendars, payments, and outstanding due balances."
+  keywords="milk ledger, milk delivery register, doodh ka hissab, milk diary app, milk delivery log, daily milk tracker"
+  schema={milkSchema}
+  accentColor="#0284c7"
+>
   <style is:global>
     .supplier-name:hover {
       color: var(--accent-secondary);

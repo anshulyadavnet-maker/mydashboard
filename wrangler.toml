@@ -1,4 +1,4 @@
-name = "milk-hissab"
+name = "mydashboard"
 compatibility_date = "2025-06-01"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "dist"

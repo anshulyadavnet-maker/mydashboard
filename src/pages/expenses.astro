@@ -32,10 +32,39 @@ if (isLoggedIn) {
   totalMonthExpense = expenses.reduce((sum: number, exp: any) => sum + Number(exp.amount), 0);
 }
 
+const expensesSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Is my financial data shared with advertisers?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Never. MYDASHBOARD.CO.IN guarantees total user data privacy. All entries are written directly to your private workspace database."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I download or export my expense list?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Export features are coming soon as part of the advanced workspace utility roadmap. You can vote to expedite this feature in the home portal."
+      }
+    }
+  ]
+};
+
 const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const monthName = monthNames[month - 1];
 ---
-<Layout title={`Expenses - ${monthName} ${year}`} accentColor="#e11d48">
+<Layout 
+  title={`Expenses - ${monthName} ${year} | Online Budget Tracker`} 
+  description="Log cash expenses, categorize budget spendings (Food, Rent, Bills, Shopping), set monthly limits, and analyze your financial bookkeeping."
+  keywords="expense tracker, budget manager, track spending, cash expense log, personal budget, money tracker, monthly expense manager"
+  schema={expensesSchema}
+  accentColor="#e11d48"
+>
   {isLoggedIn ? (
     <div class="container animate-fade-in pb-4">
       <div class="flex-between mb-4 flex-wrap gap-4">

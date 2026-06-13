@@ -20,8 +20,37 @@ if (isLoggedIn) {
     }
   });
 }
+
+const notesSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Is this notepad secure?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes! Your notes are kept strictly private under your credentials and written to your secure personal database."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is there a search feature?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. The notes page features an instant search filter in the toolbar that searches both tags and note body text instantly."
+      }
+    }
+  ]
+};
 ---
-<Layout title="Notes - MYDASHBOARD.CO.IN" accentColor="#d97706">
+<Layout 
+  title="Online Quick Notes & Sticky Notepad | My Dashboard" 
+  description="Draft ideas, manage project tags, customize note colors, organize checklists, and find notes instantly with real-time keyword search."
+  keywords="online notepad, quick notes, sticky notes, notes online, checklists notepad, secure notes, personal notes sync"
+  schema={notesSchema}
+  accentColor="#d97706"
+>
   {isLoggedIn ? (
     <div class="container animate-fade-in pb-4">
       <div class="flex-between mb-4 flex-wrap gap-4">

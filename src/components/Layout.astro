@@ -3,24 +3,50 @@ import '../styles/global.css';
 
 export interface Props {
   title: string;
+  description?: string;
+  keywords?: string;
+  ogTitle?: string;
+  ogDescription?: string;
+  ogImage?: string;
+  canonicalUrl?: string;
   accentColor?: string;
+  schema?: any;
 }
-const { title, accentColor } = Astro.props;
+const {
+  title,
+  description = "MYDASHBOARD.CO.IN - The ultimate multi-utility portal and personal ledger workspace. Manage everything in one dashboard: milk logs, notes, budgets, password vaults, and utility calculations.",
+  keywords = "personal ledger, notes, expense tracker, password generator, milk delivery logs, online calculators, utility workspace",
+  ogTitle = "MYDASHBOARD.CO.IN - manage everything. one dashboard.",
+  ogDescription = "Secure personal ledgers, quick checklists notes, expense logs, secure vaults, and smart calculation utilities in one dashboard.",
+  ogImage = "https://mydashboard.co.in/og-image.png",
+  canonicalUrl,
+  accentColor,
+  schema
+} = Astro.props;
 const isLoggedIn = !!Astro.locals.user;
+const resolvedCanonical = canonicalUrl || new URL(Astro.url.pathname, 'https://mydashboard.co.in').toString();
+const isPagesDev = Astro.url.hostname.endsWith('pages.dev');
 ---
 <!doctype html>
 <html lang="en" data-logged-in={isLoggedIn ? "true" : "false"}>
 <head>
   <meta charset="UTF-8">
+  {isPagesDev && <meta name="robots" content="noindex, nofollow" />}
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#0d9488">
-  <meta name="description" content="MYDASHBOARD.CO.IN - The ultimate multi-utility portal and personal ledger workspace. Manage everything in one dashboard: milk logs, notes, budgets, password vaults, and utility calculations.">
-  <meta name="keywords" content="personal ledger, notes, expense tracker, password generator, milk delivery logs, online calculators, utility workspace">
-  <meta property="og:title" content="MYDASHBOARD.CO.IN - manage everything. one dashboard.">
-  <meta property="og:description" content="Secure personal ledgers, quick checklists notes, expense logs, secure vaults, and smart calculation utilities in one dashboard.">
+  <meta name="description" content={description}>
+  <meta name="keywords" content={keywords}>
+  <meta property="og:title" content={ogTitle}>
+  <meta property="og:description" content={ogDescription}>
   <meta property="og:type" content="website">
+  <meta property="og:url" content={resolvedCanonical}>
+  <meta property="og:image" content={ogImage}>
+  <link rel="canonical" href={resolvedCanonical} />
   <meta name="color-scheme" content="dark light">
   <title>{title}</title>
+  {schema && (
+    <script type="application/ld+json" set:html={JSON.stringify(schema)} />
+  )}
   {accentColor && (
     <style is:inline set:html={`
       :root, [data-theme="light"], [data-theme="dark"] {
