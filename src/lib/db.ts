@@ -324,18 +324,18 @@ export async function getPasswords(db: D1Database, userId: number) {
 
 export async function createPassword(db: D1Database, userId: number, data: any) {
   const result = await db.prepare(`
-    INSERT INTO passwords (user_id, service_name, service_id, email, password, category, color)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).bind(userId, data.service_name, data.service_id, data.email, data.password, data.category, data.color || '#ffffff').run();
+    INSERT INTO passwords (user_id, service_name, service_id, email, password, category, color, website_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(userId, data.service_name, data.service_id, data.email, data.password, data.category, data.color || '#ffffff', data.website_url || '').run();
   return result.meta?.last_row_id;
 }
 
 export async function updatePassword(db: D1Database, passwordId: number, userId: number, data: any) {
   await db.prepare(`
     UPDATE passwords SET 
-      service_name = ?, service_id = ?, email = ?, password = ?, category = ?, color = ?, updated_at = datetime('now')
+      service_name = ?, service_id = ?, email = ?, password = ?, category = ?, color = ?, website_url = ?, updated_at = datetime('now')
     WHERE id = ? AND user_id = ?
-  `).bind(data.service_name, data.service_id, data.email, data.password, data.category, data.color || '#ffffff', passwordId, userId).run();
+  `).bind(data.service_name, data.service_id, data.email, data.password, data.category, data.color || '#ffffff', data.website_url || '', passwordId, userId).run();
 }
 
 export async function deletePassword(db: D1Database, passwordId: number, userId: number) {

@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS passwords (
   password TEXT NOT NULL,
   category TEXT NOT NULL,
   color TEXT DEFAULT '#ffffff',
+  website_url TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
