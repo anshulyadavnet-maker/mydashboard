@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS milk_payments (
 CREATE TABLE IF NOT EXISTS notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT,
   content TEXT NOT NULL,
   color TEXT DEFAULT '#ffffff',
   created_at TEXT DEFAULT (datetime('now')),

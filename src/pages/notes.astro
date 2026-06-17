@@ -98,10 +98,12 @@ const notesSchema = {
           notes.map((note: any) => (
             <div class="note-card glass-card p-4" 
                  data-id={note.id} 
+                 data-title={note.title ? note.title.toLowerCase() : ''}
                  data-content={note.content.toLowerCase()} 
                  data-tags={note.tags ? note.tags.toLowerCase() : ''}
                  data-color={note.color}
                  style={`border-top: 4px solid ${note.color};`}>
+              {note.title && <h3 class="note-title-text mb-2 text-md fw-bold" style="font-weight: 700; color: var(--text-primary);">{note.title}</h3>}
               <div class="note-content mb-3" style="white-space: pre-wrap;">{note.content}</div>
               <div class="flex-between mt-auto pt-2 border-t border-white/5">
                 <div class="flex gap-1 flex-wrap">
@@ -131,6 +133,11 @@ const notesSchema = {
             <form id="noteForm">
               <input type="hidden" name="action" id="noteAction" value="create">
               <input type="hidden" name="id" id="noteId" value="">
+              
+              <div class="mb-3">
+                <label class="form-label" for="noteTitle">Title</label>
+                <input type="text" id="noteTitle" name="title" class="form-control" placeholder="Note title (optional)">
+              </div>
               
               <div class="mb-3">
                 <label class="form-label" for="noteContent">Content *</label>
@@ -258,6 +265,7 @@ const notesSchema = {
     document.getElementById('noteModalTitle')!.textContent = 'New Note';
     (document.getElementById('noteAction') as HTMLInputElement).value = 'create';
     (document.getElementById('noteId') as HTMLInputElement).value = '';
+    (document.getElementById('noteTitle') as HTMLInputElement).value = '';
     document.getElementById('noteDelBtn')!.style.display = 'none';
     showModal();
   });
@@ -265,6 +273,7 @@ const notesSchema = {
   document.querySelectorAll('.note-card').forEach(card => {
     card.addEventListener('click', () => {
       const id = card.getAttribute('data-id');
+      const title = card.getAttribute('data-title') || '';
       const content = card.querySelector('.note-content')?.textContent;
       const tags = Array.from(card.querySelectorAll('.badge-sm')).map(b => b.textContent?.replace('#', '')).join(', ');
       const color = card.getAttribute('data-color');
@@ -272,6 +281,7 @@ const notesSchema = {
       document.getElementById('noteModalTitle')!.textContent = 'Edit Note';
       (document.getElementById('noteAction') as HTMLInputElement).value = 'update';
       (document.getElementById('noteId') as HTMLInputElement).value = id!;
+      (document.getElementById('noteTitle') as HTMLInputElement).value = title;
       (document.getElementById('noteContent') as HTMLTextAreaElement).value = content!;
       (document.getElementById('noteTags') as HTMLInputElement).value = tags;
       
@@ -319,11 +329,12 @@ const notesSchema = {
     
     document.querySelectorAll('.note-card').forEach(card => {
       const c = card as HTMLElement;
+      const title = c.dataset.title || '';
       const content = c.dataset.content || '';
       const tags = c.dataset.tags || '';
       const cardColor = c.dataset.color || '';
       
-      const matchesSearch = content.includes(query) || tags.includes(query);
+      const matchesSearch = title.includes(query) || content.includes(query) || tags.includes(query);
       const matchesTag = tag === '' || tags.includes(tag);
       const matchesColor = color === '' || cardColor === color;
       

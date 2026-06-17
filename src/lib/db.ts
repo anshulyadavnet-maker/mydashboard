@@ -237,8 +237,18 @@ export async function deletePayment(db: D1Database, paymentId: number) {
   return result.meta?.changes || 0;
 }
 
+// Notes CRUD Helper
+export async function ensureNotesTitleColumn(db: D1Database) {
+  try {
+    await db.prepare('ALTER TABLE notes ADD COLUMN title TEXT').run();
+  } catch (e) {
+    // Ignore error if column already exists
+  }
+}
+
 // Notes CRUD
 export async function getNotes(db: D1Database, userId: number) {
+  await ensureNotesTitleColumn(db);
   const result = await db.prepare(`
     SELECT n.*, group_concat(t.tag) as tags
     FROM notes n
@@ -250,10 +260,11 @@ export async function getNotes(db: D1Database, userId: number) {
   return result.results;
 }
 
-export async function createNote(db: D1Database, userId: number, content: string, color: string, tags: string[]) {
+export async function createNote(db: D1Database, userId: number, title: string, content: string, color: string, tags: string[]) {
+  await ensureNotesTitleColumn(db);
   const result = await db.prepare(
-    'INSERT INTO notes (user_id, content, color) VALUES (?, ?, ?)'
-  ).bind(userId, content, color).run();
+    'INSERT INTO notes (user_id, title, content, color) VALUES (?, ?, ?, ?)'
+  ).bind(userId, title || '', content, color).run();
   const noteId = result.meta?.last_row_id;
   if (noteId && tags.length > 0) {
     const stmts = tags.map(tag => 
@@ -264,10 +275,11 @@ export async function createNote(db: D1Database, userId: number, content: string
   return noteId;
 }
 
-export async function updateNote(db: D1Database, noteId: number, userId: number, content: string, color: string, tags: string[]) {
+export async function updateNote(db: D1Database, noteId: number, userId: number, title: string, content: string, color: string, tags: string[]) {
+  await ensureNotesTitleColumn(db);
   await db.prepare(
-    'UPDATE notes SET content = ?, color = ?, updated_at = datetime(\'now\') WHERE id = ? AND user_id = ?'
-  ).bind(content, color, noteId, userId).run();
+    'UPDATE notes SET title = ?, content = ?, color = ?, updated_at = datetime(\'now\') WHERE id = ? AND user_id = ?'
+  ).bind(title || '', content, color, noteId, userId).run();
   
   await db.prepare('DELETE FROM note_tags WHERE note_id = ?').bind(noteId).run();
   if (tags.length > 0) {

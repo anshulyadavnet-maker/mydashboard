@@ -8,14 +8,14 @@ export const POST: APIRoute = async (context) => {
   
   const db = getDB(context);
   const data = await request.json();
-  const { action, id, content, color, tags } = data;
+  const { action, id, title, content, color, tags } = data;
   
   try {
     if (action === 'create') {
-      const noteId = await createNote(db, user.userId, content, color, tags || []);
+      const noteId = await createNote(db, user.userId, title, content, color, tags || []);
       return new Response(JSON.stringify({ success: true, id: noteId }));
     } else if (action === 'update') {
-      await updateNote(db, id, user.userId, content, color, tags || []);
+      await updateNote(db, id, user.userId, title, content, color, tags || []);
       return new Response(JSON.stringify({ success: true }));
     } else if (action === 'delete') {
       await deleteNote(db, id, user.userId);
