@@ -305,7 +305,7 @@ const homeSchema = {
     </div>
 
     <!-- Tools Grid -->
-    <div class="tools-grid-container">
+    <div class={`tools-grid-container ${loggedIn ? 'is-logged-in' : ''}`}>
       <div class="tools-grid" id="tools-grid">
         {sortedTools.map(tool => {
           const glowColor = tool.color + '25'; // Hex alpha (approx 15% opacity)
@@ -355,58 +355,60 @@ const homeSchema = {
         })}
       </div>
     <!-- Search Engine Optimization (SEO) Content Panel -->
-    <article class="glass-card p-6 mt-8" style="margin-top: 2rem;">
-      <header class="mb-4">
-        <h2 class="h3 text-accent mb-2" style="font-weight: 800; font-size: 1.4rem;">MYDASHBOARD.CO.IN — Manage Everything. One Dashboard.</h2>
-        <p class="text-xs text-muted leading-relaxed">
-          Welcome to the ultimate personal utility workspace and daily bookkeeping portal. Built mobile-first for high performance, security, and convenience, <strong>MYDASHBOARD.CO.IN</strong> consolidates your essential tracking logs, secure credentials vaults, quick notes, and utility calculations into a single, lightning-fast workspace.
-        </p>
-      </header>
-
-      <div class="row gap-4" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); display: grid;">
-        <div>
-          <h3 class="h6 fw-bold mb-2">🥛 Daily Milk Ledger (Doodh ka Hissab)</h3>
-          <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
-            Keep an accurate digital register of your daily milk deliveries. Record morning/evening quantities, configure custom rates per supplier, automatically carry forward balances, and manage monthly payouts. Say goodbye to manual calendar logging and complex calculations.
+    {!loggedIn && (
+      <article class="glass-card p-6 mt-8" style="margin-top: 2rem;">
+        <header class="mb-4">
+          <h2 class="h3 text-accent mb-2" style="font-weight: 800; font-size: 1.4rem;">MYDASHBOARD.CO.IN — Manage Everything. One Dashboard.</h2>
+          <p class="text-xs text-muted leading-relaxed">
+            Welcome to the ultimate personal utility workspace and daily bookkeeping portal. Built mobile-first for high performance, security, and convenience, <strong>MYDASHBOARD.CO.IN</strong> consolidates your essential tracking logs, secure credentials vaults, quick notes, and utility calculations into a single, lightning-fast workspace.
           </p>
-        </div>
+        </header>
 
-        <div>
-          <h3 class="h6 fw-bold mb-2">💸 Expense Manager &amp; Budget Tracker</h3>
-          <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
-            Track your daily expenses and monitor monthly spending habits. Categorize budgets, see real-time breakdowns of where your money goes, and ensure you stay within your limits. Our secure structure provides private expense logging on the Cloudflare D1 database.
-          </p>
-        </div>
+        <div class="row gap-4" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); display: grid;">
+          <div>
+            <h3 class="h6 fw-bold mb-2">🥛 Daily Milk Ledger (Doodh ka Hissab)</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Keep an accurate digital register of your daily milk deliveries. Record morning/evening quantities, configure custom rates per supplier, automatically carry forward balances, and manage monthly payouts. Say goodbye to manual calendar logging and complex calculations.
+            </p>
+          </div>
 
-        <div>
-          <h3 class="h6 fw-bold mb-2">📝 Quick Sticky Notes &amp; Notepad</h3>
-          <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
-            Capture ideas, compose draft reminders, and compile daily to-do checklists on the fly. Organize your digital sticky notes with customizable colors and searchable hashtags. Reachable, fast, and structured for one-handed entry on any mobile phone.
-          </p>
-        </div>
+          <div>
+            <h3 class="h6 fw-bold mb-2">💸 Expense Manager &amp; Budget Tracker</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Track your daily expenses and monitor monthly spending habits. Categorize budgets, see real-time breakdowns of where your money goes, and ensure you stay within your limits. Our secure structure provides private expense logging on the Cloudflare D1 database.
+            </p>
+          </div>
 
-        <div>
-          <h3 class="h6 fw-bold mb-2">🔑 Password Manager &amp; Secure Vault</h3>
-          <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
-            Protect your online presence with a built-in credentials manager. Securely generate complex, random passwords, store website logins, and filter credentials by categories. Safe and encrypted with secure edge routing protocols.
-          </p>
-        </div>
+          <div>
+            <h3 class="h6 fw-bold mb-2">📝 Quick Sticky Notes &amp; Notepad</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Capture ideas, compose draft reminders, and compile daily to-do checklists on the fly. Organize your digital sticky notes with customizable colors and searchable hashtags. Reachable, fast, and structured for one-handed entry on any mobile phone.
+            </p>
+          </div>
 
-        <div>
-          <h3 class="h6 fw-bold mb-2">📊 Smart Calculations &amp; Age Calculator</h3>
-          <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
-            Access direct calculators without logging in. The Online Calculator handles immediate arithmetic on a sleek grid. The Age Calculator returns your exact age in years, months, and days, details your zodiac sign, and tracks your next birthday countdown.
-          </p>
-        </div>
+          <div>
+            <h3 class="h6 fw-bold mb-2">🔑 Password Manager &amp; Secure Vault</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Protect your online presence with a built-in credentials manager. Securely generate complex, random passwords, store website logins, and filter credentials by categories. Safe and encrypted with secure edge routing protocols.
+            </p>
+          </div>
 
-        <div>
-          <h3 class="h6 fw-bold mb-2">🚀 Upcoming Trackers &amp; Voter Roadmap</h3>
-          <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
-            Shape the future of our multi-utility dashboard. Vote to expedite upcoming features, including the <strong>Gas Cylinder Delivery Tracker</strong>, regional <strong>Newspaper Ledger</strong>, student <strong>Tuition Fee Tracker</strong>, and monthly <strong>Rent Ledger</strong>.
-          </p>
+          <div>
+            <h3 class="h6 fw-bold mb-2">📊 Smart Calculations &amp; Age Calculator</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Access direct calculators without logging in. The Online Calculator handles immediate arithmetic on a sleek grid. The Age Calculator returns your exact age in years, months, and days, details your zodiac sign, and tracks your next birthday countdown.
+            </p>
+          </div>
+
+          <div>
+            <h3 class="h6 fw-bold mb-2">🚀 Upcoming Trackers &amp; Voter Roadmap</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Shape the future of our multi-utility dashboard. Vote to expedite upcoming features, including the <strong>Gas Cylinder Delivery Tracker</strong>, regional <strong>Newspaper Ledger</strong>, student <strong>Tuition Fee Tracker</strong>, and monthly <strong>Rent Ledger</strong>.
+            </p>
+          </div>
         </div>
-      </div>
-    </article>
+      </article>
+    )}
   </main>
 
   <!-- Dynamic Upcoming Tool Modal -->
@@ -594,6 +596,79 @@ const homeSchema = {
     filter: brightness(1.1);
     box-shadow: 0 4px 12px var(--tool-color-glow);
   }
+
+  /* Logged-in Mobile App Drawer Styles */
+  @media (max-width: 639px) {
+    .is-logged-in .tools-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.75rem;
+    }
+
+    .is-logged-in .tool-card {
+      padding: 0.75rem 0.5rem;
+      align-items: center;
+      text-align: center;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      min-height: 110px;
+      justify-content: center;
+    }
+
+    /* Remove the top accent line since it's too busy in compact grid */
+    .is-logged-in .tool-card::before {
+      display: none;
+    }
+
+    .is-logged-in .tool-icon {
+      font-size: 1.8rem;
+      margin-bottom: 0.5rem;
+      width: 44px;
+      height: 44px;
+      border-radius: var(--radius-md);
+    }
+
+    .is-logged-in .tool-content {
+      align-items: center;
+      width: 100%;
+    }
+
+    .is-logged-in .tool-title {
+      font-size: 0.75rem !important;
+      font-weight: 600;
+      margin-bottom: 0 !important;
+      display: flex;
+      justify-content: center;
+      width: 100%;
+    }
+
+    .is-logged-in .tool-title span:first-child {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+
+    /* Hide descriptions, footers, badges for logged-in mobile app drawer */
+    .is-logged-in .tool-status,
+    .is-logged-in .tool-desc,
+    .is-logged-in .tool-footer {
+      display: none !important;
+    }
+
+    /* Differentiate upcoming tools in drawer */
+    .is-logged-in .tool-card.upcoming {
+      opacity: 0.65;
+      border-style: dashed;
+    }
+
+    /* Interactive press feedback */
+    .is-logged-in .tool-card:active {
+      transform: scale(0.95);
+      background: var(--bg-surface-hover);
+      box-shadow: 0 4px 15px var(--tool-color-glow);
+    }
+  }
 </style>
 
 
@@ -699,13 +774,38 @@ const homeSchema = {
     if (upcomingModal) upcomingModal.style.display = 'flex';
   }
 
-  // Bind click event on upcoming preview buttons
+  // Handle clicking on the tool card or its buttons
   document.getElementById('tools-grid')?.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest('.btn-preview-tool');
-    if (btn) {
-      const card = btn.closest('.tool-card') as HTMLElement;
+    const target = e.target as HTMLElement;
+    
+    // Check if it's the preview button
+    const previewBtn = target.closest('.btn-preview-tool');
+    if (previewBtn) {
+      const card = previewBtn.closest('.tool-card') as HTMLElement;
       if (card) {
         openUpcomingModal(card);
+      }
+      return;
+    }
+
+    // Check if it's the launch button
+    const launchBtn = target.closest('.btn-launch-tool');
+    if (launchBtn) {
+      // Allow default link behavior
+      return;
+    }
+
+    // Check if clicked on the card itself
+    const card = target.closest('.tool-card') as HTMLElement;
+    if (card) {
+      const isUpcoming = card.dataset.upcoming === 'true';
+      if (isUpcoming) {
+        openUpcomingModal(card);
+      } else {
+        const launchLink = card.querySelector('.btn-launch-tool') as HTMLAnchorElement;
+        if (launchLink) {
+          window.location.href = launchLink.href;
+        }
       }
     }
   });
