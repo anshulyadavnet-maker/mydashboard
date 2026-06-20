@@ -1,0 +1,1111 @@
+---
+import Layout from '../components/Layout.astro';
+import { getDB, getPlacements, getCylinders, recordToolUsage } from '../lib/db';
+
+const user = Astro.locals.user;
+const isLoggedIn = !!user;
+
+let placements: any[] = [];
+let cylinders: any[] = [];
+let activeCylinders: any[] = [];
+let standbyCylinders: any[] = [];
+let bookedCylinders: any[] = [];
+let stats = {
+  totalSpent: 0,
+  totalSubsidy: 0,
+  averageLifespans: {} as Record<number, number>,
+  activeCount: 0,
+  standbyCount: 0,
+  bookedCount: 0
+};
+
+if (isLoggedIn) {
+  const db = getDB(Astro);
+  
+  // Record tool usage
+  await recordToolUsage(db, user.userId, 'cylinder');
+  
+  // Fetch user data
+  placements = await getPlacements(db, user.userId);
+  cylinders = await getCylinders(db, user.userId);
+
+  // Group by status
+  activeCylinders = cylinders.filter(c => c.status === 'active');
+  standbyCylinders = cylinders.filter(c => c.status === 'delivered');
+  bookedCylinders = cylinders.filter(c => c.status === 'booked');
+
+  // Compute stats
+  stats.activeCount = activeCylinders.length;
+  stats.standbyCount = standbyCylinders.length;
+  stats.bookedCount = bookedCylinders.length;
+
+  cylinders.forEach(c => {
+    if (c.price) stats.totalSpent += c.price;
+    if (c.subsidy) stats.totalSubsidy += c.subsidy;
+  });
+
+  // Calculate average lifespan per placement based on history
+  placements.forEach(placement => {
+    const historical = cylinders.filter(c => 
+      c.placement_id === placement.id && 
+      c.status === 'empty' && 
+      c.start_date && 
+      c.empty_date
+    );
+    
+    if (historical.length > 0) {
+      let sumDays = 0;
+      historical.forEach(c => {
+        const start = new Date(c.start_date);
+        const end = new Date(c.empty_date);
+        const diff = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+        sumDays += Math.max(1, diff);
+      });
+      stats.averageLifespans[placement.id] = Math.round(sumDays / historical.length);
+    } else {
+      stats.averageLifespans[placement.id] = placement.estimated_days;
+    }
+  });
+}
+
+// Format date helper
+function formatDateString(dStr: string | null) {
+  if (!dStr) return '-';
+  return new Date(dStr).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  });
+}
+
+const cylinderSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What is the Cylinder Tracker?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The Cylinder Tracker is a private ledger to track your cooking gas refill booking dates, delivery rates, subsidies, and connection lifespans. It forecasts empty connections automatically."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I track multiple stoves or gas geysers?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes! You can configure separate connections like 'Kitchen Stove' or 'Geyser' and record which cylinder is hooked to which slot."
+      }
+    }
+  ]
+};
+---
+<Layout 
+  title="Online Gas Cylinder Refill Tracker & Reminder | My Dashboard" 
+  description="Manage gas cylinder bookings, track delivery intervals, log refill prices, register subsidies, and calculate automatic geyser and kitchen stove empty date countdowns."
+  keywords="gas tracker, gas cylinder ledger, cylinder booking log, refill countdown, geyser gas depletion, domestic gas ledger"
+  schema={cylinderSchema}
+  accentColor="#ea580c"
+>
+  {isLoggedIn ? (
+    <main class="container animate-fade-in pb-12">
+      <!-- Top header -->
+      <div class="flex-between mb-4 flex-wrap gap-4">
+        <div>
+          <h1 class="h2 mb-1">🔥 Cylinder Tracker</h1>
+          <p class="text-muted text-sm">Manage gas connections, cylinders, and refill projections.</p>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary" id="managePlacementsBtn">⚙️ Connections</button>
+          <button class="btn btn-primary" id="bookRefillBtn">+ Book Refill</button>
+        </div>
+      </div>
+
+      {placements.length === 0 ? (
+        <!-- Placement Onboarding Wizard -->
+        <div class="glass-card p-8 text-center max-w-sm mx-auto my-8">
+          <span style="font-size:3rem; display:block;" class="mb-4">🔥</span>
+          <h3 class="h4 mb-2" style="font-weight: 700;">Set Up Connections</h3>
+          <p class="text-sm text-muted mb-6 leading-relaxed">
+            Configure your gas consumption points to start tracking. E.g., add "Kitchen Stove" or "Bathroom Geyser" with your initial duration estimates.
+          </p>
+          <button class="btn btn-primary w-100" id="onboardPlacementBtn">Add Connection Point</button>
+        </div>
+      ) : (
+        <>
+          <!-- Projections and Connection Cards Grid -->
+          <div class="grid mb-6 gap-4" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+            {placements.map(placement => {
+              const activeCyl = activeCylinders.find(c => c.placement_id === placement.id);
+              const lifespan = stats.averageLifespans[placement.id];
+              let daysElapsed = 0;
+              let progressPercent = 0;
+              let estEmptyDate: Date | null = null;
+              let isDepletedSoon = false;
+              let countdown = 0;
+
+              if (activeCyl && activeCyl.start_date) {
+                const start = new Date(activeCyl.start_date);
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                start.setHours(0,0,0,0);
+                daysElapsed = Math.max(0, Math.floor((today.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+                progressPercent = Math.max(0, Math.min(100, Math.round(100 - (daysElapsed / lifespan) * 100)));
+                estEmptyDate = new Date(start.getTime() + lifespan * 24 * 60 * 60 * 1000);
+                countdown = Math.ceil((estEmptyDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                isDepletedSoon = daysElapsed >= 0.8 * lifespan;
+              }
+
+              let levelColor = 'var(--accent-success)';
+              if (activeCyl) {
+                if (20 >= progressPercent) {
+                  levelColor = 'var(--accent-danger)';
+                } else if (50 >= progressPercent) {
+                  levelColor = 'var(--accent-warning)';
+                }
+              }
+
+              return (
+                <div class="glass-card p-4 flex flex-col position-relative overflow-hidden" style="border-top: 4px solid var(--accent-primary);">
+                  <div class="flex-between mb-3">
+                    <div>
+                      <h3 class="fw-bold text-md mb-0" style="color: var(--text-primary);">{placement.name}</h3>
+                      <span class="text-xs text-muted">Baseline: {lifespan} Days lifespan</span>
+                    </div>
+                    {activeCyl ? (
+                      <span class="badge" style={`background: color-mix(in srgb, ${levelColor} 15%, transparent); color: ${levelColor};`}>
+                        Connected
+                      </span>
+                    ) : (
+                      <span class="badge" style="background: rgba(255, 255, 255, 0.05); color: var(--text-muted);">
+                        Empty / Disconnected
+                      </span>
+                    )}
+                  </div>
+
+                  {activeCyl ? (
+                    <div class="flex-1 flex flex-col justify-between">
+                      <div class="flex gap-4 items-start mb-4">
+                        <div class="flex-1">
+                          <!-- Flame / Remaining Gas Percentage Gauge -->
+                          <div class="flex items-end justify-between mb-2">
+                            <span class="text-xs fw-medium text-muted">Gas Level (Estimated)</span>
+                            <span class="text-md fw-bold" style={`color: ${levelColor};`}>{progressPercent}%</span>
+                          </div>
+                          <div class="progress-bar mb-4" style="height: 8px; background: rgba(255, 255, 255, 0.05); border-radius: 4px; overflow: hidden;">
+                            <div class="progress-bar-fill" style={`width: ${progressPercent}%; height: 100%; border-radius: 4px; background: ${levelColor}; transition: width 0.4s;`}></div>
+                          </div>
+
+                          <!-- Info lists -->
+                          <div class="space-y-2 text-xs text-muted">
+                            <div class="flex-between">
+                              <span>Connected on</span>
+                              <span class="text-primary-color">{formatDateString(activeCyl.start_date)}</span>
+                            </div>
+                            <div class="flex-between">
+                              <span>Elapsed duration</span>
+                              <span class="text-primary-color fw-bold">{daysElapsed} Days</span>
+                            </div>
+                            <div class="flex-between">
+                              <span>Depletion Forecast</span>
+                              <span class="text-primary-color fw-bold" style={5 >= countdown ? "color: var(--accent-danger);" : ""}>
+                                {formatDateString(estEmptyDate ? estEmptyDate.toISOString().split('T')[0] : null)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <!-- Canister Graphic -->
+                        <div class="flex items-center justify-center pt-1" style="flex-shrink:0;">
+                          <svg width="50" height="75" viewBox="0 0 60 90" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 4px 12px rgba(0,0,0,0.15)); flex-shrink:0;">
+                            <!-- Collar Ring (Top Cap) -->
+                            <rect x="18" y="4" width="24" height="4" rx="2" fill="currentColor" fill-opacity="0.15" stroke="currentColor" stroke-opacity="0.2" stroke-width="1" />
+                            
+                            <!-- Collar handles / neck -->
+                            <path d="M 22 8 L 22 18 M 38 8 L 38 18 M 30 8 L 30 14" stroke="currentColor" stroke-opacity="0.3" stroke-width="2.5" stroke-linecap="round" />
+                            
+                            <!-- Body Mask -->
+                            <mask id={`mask-cyl-${placement.id}`}>
+                              <path d="M 10 25 C 10 17, 50 17, 50 25 L 50 74 C 50 78, 10 78, 10 74 Z" fill="#fff" />
+                            </mask>
+                            
+                            <!-- Main Canister Body Frame -->
+                            <path d="M 10 25 C 10 17, 50 17, 50 25 L 50 74 C 50 78, 10 78, 10 74 Z" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.15" stroke-width="1.5" />
+                            
+                            <!-- Gas Level Fill -->
+                            <rect x="10" y={78 - 61 * (progressPercent/100)} width="40" height={61 * (progressPercent/100)} fill={levelColor} mask={`url(#mask-cyl-${placement.id})`} style="transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);" />
+                            
+                            <!-- Volumetric Reflection Overlay -->
+                            <path d="M 10 25 C 10 17, 50 17, 50 25 L 50 74 C 50 78, 10 78, 10 74 Z" fill="url(#cyl-volumetric)" style="mix-blend-mode: overlay; pointer-events: none;" />
+                            
+                            <!-- Provider details inside body -->
+                            <text x="30" y="44" font-size="12" text-anchor="middle" dominant-baseline="middle" style="user-select:none;">🔥</text>
+                            <text x="30" y="58" font-size="6.5" font-weight="700" fill="currentColor" fill-opacity="0.65" text-anchor="middle" dominant-baseline="middle" style="letter-spacing: 0.05em; text-transform: uppercase; user-select:none; font-family: 'Inter', sans-serif;">
+                              {activeCyl.provider.split(' ')[0]}
+                            </text>
+                            
+                            <!-- Base Stand Ring -->
+                            <path d="M 19 77 L 19 83 C 19 86, 41 86, 41 83 L 41 77" stroke="currentColor" stroke-opacity="0.3" stroke-width="2.5" stroke-linecap="round" fill="none" />
+                            
+                            <defs>
+                              <linearGradient id="cyl-volumetric" x1="0" y1="0" x2="1" y2="0">
+                                <stop offset="0%" stop-color="white" stop-opacity="0.15" />
+                                <stop offset="35%" stop-color="white" stop-opacity="0" />
+                                <stop offset="100%" stop-color="black" stop-opacity="0.3" />
+                              </linearGradient>
+                            </defs>
+                          </svg>
+                        </div>
+                      </div>
+
+                      {isDepletedSoon && (
+                        <div class="alert alert-warning text-xs p-2 mb-3 border-r border-amber-500/20" style="background:rgba(217, 119, 6, 0.1); border-radius: 6px; color: var(--accent-warning); font-weight:500;">
+                          ⚠️ Low gas! estimated empty in {0 >= countdown ? '0' : countdown} days.
+                        </div>
+                      )}
+
+                      <div class="flex gap-2 mt-auto">
+                        <button class="btn btn-outline-danger btn-sm mark-empty-btn w-100" data-id={activeCyl.id}>
+                          Mark Empty
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div class="flex-1 flex flex-col justify-center items-center py-6 text-center">
+                      <span class="text-2rem mb-2" style="opacity:0.3;">📭</span>
+                      <p class="text-xs text-muted mb-4">No active cylinder plugged in.</p>
+                      {standbyCylinders.length > 0 ? (
+                        <button class="btn btn-primary btn-sm install-standby-btn" data-placement-id={placement.id}>
+                          Connect Standby Cylinder
+                        </button>
+                      ) : (
+                        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('bookRefillBtn').click()">
+                          Book Refill First
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <!-- Standby and Booked Stats -->
+          <div class="grid mb-6 gap-4" style="grid-template-columns: 1fr 1fr; @media(max-width: 600px) { grid-template-columns: 1fr; }">
+            <!-- Standby cylinders -->
+            <div class="glass-card p-4">
+              <h3 class="text-sm fw-bold text-muted mb-3 flex items-center gap-2">📦 Standby Backup Cylinders ({standbyCylinders.length})</h3>
+              {standbyCylinders.length === 0 ? (
+                <p class="text-xs text-muted py-2">No backup cylinders available at home. Keep a standby backup cylinder to prevent kitchen outage!</p>
+              ) : (
+                <div class="space-y-2">
+                  {standbyCylinders.map(c => (
+                    <div class="flex-between text-xs p-2 border border-white/5 rounded glass-sub-card">
+                      <div class="flex gap-2 items-center">
+                        <svg width="22" height="33" viewBox="0 0 60 90" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+                          <!-- Collar Ring (Top Cap) -->
+                          <rect x="18" y="4" width="24" height="4" rx="2" fill="currentColor" fill-opacity="0.15" stroke="currentColor" stroke-opacity="0.2" stroke-width="1" />
+                          
+                          <!-- Collar handles / neck -->
+                          <path d="M 22 8 L 22 18 M 38 8 L 38 18 M 30 8 L 30 14" stroke="currentColor" stroke-opacity="0.3" stroke-width="2.5" stroke-linecap="round" />
+                          
+                          <mask id={`mask-standby-${c.id}`}>
+                            <path d="M 10 25 C 10 17, 50 17, 50 25 L 50 74 C 50 78, 10 78, 10 74 Z" fill="#fff" />
+                          </mask>
+                          
+                          <path d="M 10 25 C 10 17, 50 17, 50 25 L 50 74 C 50 78, 10 78, 10 74 Z" fill="currentColor" fill-opacity="0.03" stroke="currentColor" stroke-opacity="0.15" stroke-width="1.5" />
+                          <rect x="10" y="17" width="40" height="61" fill="var(--accent-secondary)" mask={`url(#mask-standby-${c.id})`} />
+                          <path d="M 10 25 C 10 17, 50 17, 50 25 L 50 74 C 50 78, 10 78, 10 74 Z" fill="url(#cyl-volumetric-mini)" style="mix-blend-mode: overlay; pointer-events: none;" />
+                          
+                          <!-- Details -->
+                          <text x="30" y="44" font-size="11" text-anchor="middle" dominant-baseline="middle" style="user-select:none;">🔥</text>
+                          <text x="30" y="58" font-size="6" font-weight="700" fill="currentColor" fill-opacity="0.65" text-anchor="middle" dominant-baseline="middle" style="letter-spacing: 0.05em; text-transform: uppercase; user-select:none; font-family: 'Inter', sans-serif;">
+                            {c.provider.split(' ')[0]}
+                          </text>
+                          
+                          <!-- Base Stand -->
+                          <path d="M 19 77 L 19 83 C 19 86, 41 86, 41 83 L 41 77" stroke="currentColor" stroke-opacity="0.3" stroke-width="2.5" stroke-linecap="round" fill="none" />
+                          
+                          <defs>
+                            <linearGradient id="cyl-volumetric-mini" x1="0" y1="0" x2="1" y2="0">
+                              <stop offset="0%" stop-color="white" stop-opacity="0.15" />
+                              <stop offset="35%" stop-color="white" stop-opacity="0" />
+                              <stop offset="100%" stop-color="black" stop-opacity="0.3" />
+                            </linearGradient>
+                          </defs>
+                        </svg>
+                        <div>
+                          <strong>{c.provider}</strong> ({c.weight} kg)
+                          <div class="text-xxs text-muted">Delivered: {formatDateString(c.delivery_date)}</div>
+                        </div>
+                      </div>
+                      <div class="flex gap-1">
+                        <button class="badge btn-install-shortcut text-xxs" style="background:var(--accent-primary); border:none; color:white; cursor:pointer;" data-id={c.id}>
+                          Connect
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <!-- Booked Cylinders -->
+            <div class="glass-card p-4">
+              <h3 class="text-sm fw-bold text-muted mb-3 flex items-center gap-2">🎫 Booked Refills ({bookedCylinders.length})</h3>
+              {bookedCylinders.length === 0 ? (
+                <p class="text-xs text-muted py-2">No active bookings currently. Book a cylinder ahead of time.</p>
+              ) : (
+                <div class="space-y-2">
+                  {bookedCylinders.map(c => (
+                    <div class="flex-between text-xs p-2 border border-white/5 rounded glass-sub-card">
+                      <div>
+                        <strong>{c.provider}</strong>
+                        <div class="text-xxs text-muted">Booked: {formatDateString(c.booking_date)}</div>
+                      </div>
+                      <div>
+                        <button class="badge btn-deliver-shortcut text-xxs" style="background:var(--accent-success); border:none; color:white; cursor:pointer;" data-id={c.id} data-provider={c.provider} data-price={c.price} data-weight={c.weight} data-booking-date={c.booking_date}>
+                          Receive Delivery
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <!-- Overall Stats Summary -->
+          <div class="glass-card p-4 mb-6">
+            <h3 class="text-sm fw-bold text-muted mb-3">📈 Expenditure & Stats</h3>
+            <div class="grid gap-3 text-center" style="grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));">
+              <div class="p-3 border border-white/5 rounded">
+                <span class="text-xs text-muted block mb-1">Total Refill Spending</span>
+                <strong class="text-md font-bold" style="color:var(--text-primary);">₹{stats.totalSpent.toFixed(2)}</strong>
+              </div>
+              <div class="p-3 border border-white/5 rounded">
+                <span class="text-xs text-muted block mb-1">Subsidies Received</span>
+                <strong class="text-md font-bold" style="color:var(--accent-success);">₹{stats.totalSubsidy.toFixed(2)}</strong>
+              </div>
+              <div class="p-3 border border-white/5 rounded">
+                <span class="text-xs text-muted block mb-1">Cylinder Connections</span>
+                <strong class="text-md font-bold">{placements.length} Connections</strong>
+              </div>
+              <div class="p-3 border border-white/5 rounded">
+                <span class="text-xs text-muted block mb-1">Total Cylinders Owned</span>
+                <strong class="text-md font-bold">{stats.standbyCount + stats.activeCount} canisters</strong>
+              </div>
+            </div>
+          </div>
+
+          <!-- Historical logs -->
+          <div class="glass-card">
+            <div class="flex-between p-4 border-b border-white/5 flex-wrap gap-2">
+              <h3 class="text-sm fw-bold text-muted mb-0">🗒️ Historical Cylinder Register</h3>
+              <button class="btn btn-secondary btn-sm" id="manualCylinderLogBtn">+ Record Old Entry</button>
+            </div>
+            <div class="table-wrapper">
+              <table class="main-matrix text-xs">
+                <thead>
+                  <tr>
+                    <th>Provider</th>
+                    <th>Booking Number</th>
+                    <th>Booking Date</th>
+                    <th>Delivery Date</th>
+                    <th>Status</th>
+                    <th>Connection point</th>
+                    <th>Connected Date</th>
+                    <th>Price</th>
+                    <th>Subsidy</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cylinders.length === 0 ? (
+                    <tr>
+                      <td colspan="10" class="text-center text-muted p-4">No records found. Click "Book Refill" to add entries.</td>
+                    </tr>
+                  ) : (
+                    cylinders.map(c => (
+                      <tr>
+                        <td><strong>{c.provider}</strong> <span class="text-xxs text-muted">({c.weight}kg)</span></td>
+                        <td>{c.booking_number || '-'}</td>
+                        <td>{formatDateString(c.booking_date)}</td>
+                        <td>{formatDateString(c.delivery_date)}</td>
+                        <td>
+                          <span class={`badge text-xxs ${
+                            c.status === 'active' ? 'badge-primary' : 
+                            c.status === 'delivered' ? 'badge-secondary' :
+                            c.status === 'empty' ? 'badge-muted' : 'badge-warning'
+                          }`}>
+                            {c.status.toUpperCase()}
+                          </span>
+                        </td>
+                        <td>{c.placement_name || '-'}</td>
+                        <td>{formatDateString(c.start_date)}</td>
+                        <td>₹{c.price || 0}</td>
+                        <td>₹{c.subsidy || 0}</td>
+                        <td class="flex gap-1">
+                          <button class="btn-icon btn-icon-sm edit-cyl-btn" data-json={JSON.stringify(c)} title="Edit">✏️</button>
+                          <button class="btn-icon btn-icon-sm delete-cyl-btn" data-id={c.id} title="Delete">🗑️</button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      <!-- Modals Layer -->
+      <!-- 1. Cylinder Modal (Book Refill / Add entry) -->
+      <div class="modal-overlay" id="cylinderModal" style="display:none;">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="cylinderModalTitle">Book Cylinder Refill</h5>
+            <button class="modal-close" onclick="document.getElementById('cylinderModal').style.display='none'">&times;</button>
+          </div>
+          <div class="modal-body">
+            <form id="cylinderForm" class="space-y-3">
+              <input type="hidden" name="action" id="cylAction" value="create">
+              <input type="hidden" name="id" id="cylId" value="">
+
+              <div class="grid gap-3" style="grid-template-columns: 1fr 1fr;">
+                <div>
+                  <label class="form-label" for="cylProvider">Provider *</label>
+                  <select id="cylProvider" name="provider" class="form-select" required>
+                    <option value="Indane">Indane 🔥</option>
+                    <option value="HP Gas">HP Gas 🔴</option>
+                    <option value="Bharat Gas">Bharat Gas 🟡</option>
+                    <option value="Private Provider">Private Provider ⚪</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label" for="cylWeight">Canister Weight (kg)</label>
+                  <input type="number" step="0.1" id="cylWeight" name="weight" class="form-control" value="14.2" required>
+                </div>
+              </div>
+
+              <div class="grid gap-3" style="grid-template-columns: 1fr 1fr;">
+                <div>
+                  <label class="form-label" for="cylBookingNo">Booking Number</label>
+                  <input type="text" id="cylBookingNo" name="booking_number" class="form-control" placeholder="Ref no.">
+                </div>
+                <div>
+                  <label class="form-label" for="cylBookingDate">Booking Date *</label>
+                  <input type="date" id="cylBookingDate" name="booking_date" class="form-control" required>
+                </div>
+              </div>
+
+              <div>
+                <label class="form-label" for="cylStatus">Current Refill Status</label>
+                <select id="cylStatus" name="status" class="form-select">
+                  <option value="booked">Booked (Waiting for delivery)</option>
+                  <option value="delivered">Delivered (Standby backup cylinder)</option>
+                  <option value="active">Active (Currently hooked / In-use)</option>
+                  <option value="empty">Empty (Depleted canister)</option>
+                </select>
+              </div>
+
+              <div class="border-t border-white/5 pt-3 space-y-3" id="deliveryFields" style="display:none;">
+                <div class="grid gap-3" style="grid-template-columns: 1fr 1fr;">
+                  <div>
+                    <label class="form-label" for="cylDeliveryDate">Delivery Date</label>
+                    <input type="date" id="cylDeliveryDate" name="delivery_date" class="form-control">
+                  </div>
+                  <div>
+                    <label class="form-label" for="cylPrice">Price Paid (₹)</label>
+                    <input type="number" step="0.01" id="cylPrice" name="price" class="form-control" value="0">
+                  </div>
+                </div>
+                <div>
+                  <label class="form-label" for="cylSubsidy">Govt Subsidy Returned (₹)</label>
+                  <input type="number" step="0.01" id="cylSubsidy" name="subsidy" class="form-control" value="0">
+                </div>
+              </div>
+
+              <div class="border-t border-white/5 pt-3 space-y-3" id="connectionFields" style="display:none;">
+                <div class="grid gap-3" style="grid-template-columns: 1fr 1fr;">
+                  <div>
+                    <label class="form-label" for="cylPlacement">Connection Point</label>
+                    <select id="cylPlacement" name="placement_id" class="form-select">
+                      <option value="">No Placement (Backup Cylinder)</option>
+                      {placements.map(p => (
+                        <option value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label class="form-label" for="cylStartDate">Installation Date</label>
+                    <input type="date" id="cylStartDate" name="start_date" class="form-control">
+                  </div>
+                </div>
+                <div id="emptyFields" style="display:none;">
+                  <label class="form-label" for="cylEmptyDate">Date Gone Empty</label>
+                  <input type="date" id="cylEmptyDate" name="empty_date" class="form-control">
+                </div>
+              </div>
+
+              <div>
+                <label class="form-label" for="cylNotes">Notes</label>
+                <textarea id="cylNotes" name="notes" class="form-control" rows="2" placeholder="Delivery notes, delivery boy charge etc."></textarea>
+              </div>
+
+              <div class="flex gap-2 pt-2">
+                <button type="button" class="btn btn-secondary w-100" onclick="document.getElementById('cylinderModal').style.display='none'">Cancel</button>
+                <button type="submit" class="btn btn-primary w-100">Save Refill</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Connect Standby Modal -->
+      <div class="modal-overlay" id="connectModal" style="display:none;">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Connect Standby Cylinder</h5>
+            <button class="modal-close" onclick="document.getElementById('connectModal').style.display='none'">&times;</button>
+          </div>
+          <div class="modal-body">
+            <form id="connectForm" class="space-y-4">
+              <input type="hidden" name="action" value="connect">
+              
+              <div>
+                <label class="form-label" for="connectCylId">Select Standby Cylinder *</label>
+                <select id="connectCylId" name="id" class="form-select" required>
+                  {standbyCylinders.length === 0 ? (
+                    <option value="" disabled>No standby cylinders available</option>
+                  ) : (
+                    standbyCylinders.map(c => (
+                      <option value={c.id}>
+                        {c.provider} ({c.weight} kg) - Delivered {formatDateString(c.delivery_date)}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+              
+              <div>
+                <label class="form-label" for="connectPlacementId">Target Gas Connection Point *</label>
+                <select id="connectPlacementId" name="placementId" class="form-select" required>
+                  {placements.map(p => (
+                    <option value={p.id}>{p.name} (Estimated lifespan: {stats.averageLifespans[p.id]} Days)</option>
+                  ))}
+                </select>
+                <span class="text-xs text-muted mt-1 block">Connecting this cylinder will automatically mark any currently active cylinder on this connection as EMPTY today.</span>
+              </div>
+
+              <div>
+                <label class="form-label" for="connectDate">Install / Connect Date</label>
+                <input type="date" id="connectDate" name="connectDate" class="form-control" required>
+              </div>
+
+              <div class="flex gap-2">
+                <button type="button" class="btn btn-secondary w-100" onclick="document.getElementById('connectModal').style.display='none'">Cancel</button>
+                <button type="submit" class="btn btn-primary w-100">Hook Up Canister</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Manage Placements/Connections Modal -->
+      <div class="modal-overlay" id="placementModal" style="display:none;">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Gas Connections Settings</h5>
+            <button class="modal-close" onclick="document.getElementById('placementModal').style.display='none'">&times;</button>
+          </div>
+          <div class="modal-body">
+            <!-- Existing placements list -->
+            <div class="mb-4">
+              <strong class="text-xs text-muted block mb-2" style="text-transform: uppercase;">Active Connection Points</strong>
+              {placements.length === 0 ? (
+                <p class="text-xs text-muted">No connection points set up yet.</p>
+              ) : (
+                <div class="space-y-2 max-h-40 overflow-y-auto">
+                  {placements.map(p => (
+                    <div class="flex-between p-2 border border-white/5 rounded glass-sub-card text-xs">
+                      <div>
+                        <strong>{p.name}</strong> 
+                        <span class="text-muted block text-xxs">Initial Estimate: {p.estimated_days} Days</span>
+                      </div>
+                      <div class="flex gap-1">
+                        <button class="btn-icon btn-icon-sm edit-placement-btn" data-id={p.id} data-name={p.name} data-days={p.estimated_days} title="Edit">✏️</button>
+                        <button class="btn-icon btn-icon-sm delete-placement-btn" data-id={p.id} title="Delete">🗑️</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <!-- Create/Edit Form -->
+            <form id="placementForm" class="border-t border-white/5 pt-3 space-y-3">
+              <strong class="text-xs text-muted block" id="placementFormTitle" style="text-transform: uppercase;">Add Connection Point</strong>
+              <input type="hidden" name="action" id="placeAction" value="create">
+              <input type="hidden" name="id" id="placeId" value="">
+
+              <div>
+                <label class="form-label" for="placeName">Connection Name *</label>
+                <input type="text" id="placeName" name="name" class="form-control" placeholder="e.g. Kitchen Stove, Bathroom Geyser" required>
+              </div>
+
+              <div>
+                <label class="form-label" for="placeDays">First-Time Estimate (Days) *</label>
+                <input type="number" id="placeDays" name="estimatedDays" class="form-control" value="45" min="1" required>
+                <span class="text-xxs text-muted mt-1 block">Default duration a full cylinder lasts here. System will adjust this estimate automatically as you mark cylinders empty.</span>
+              </div>
+
+              <div class="flex gap-2 pt-2">
+                <button type="button" class="btn btn-secondary w-100" id="resetPlacementFormBtn" style="display:none;">Cancel Edit</button>
+                <button type="submit" class="btn btn-primary w-100" id="submitPlacementBtn">Save Connection</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </main>
+  ) : (
+    <!-- SEO Landing Page for Logged-Out Users -->
+    <main class="container animate-fade-in pb-12">
+      <div class="dashboard-hero py-12 mb-8 text-center glass-card p-8">
+        <span class="badge mb-2">🔥 Dual Gas Connection Tracker</span>
+        <h1 class="h1 mb-2" style="font-weight: 800; letter-spacing: -0.02em;">Online Gas Cylinder Ledger &amp; Depletion Tracker</h1>
+        <p class="text-muted text-sm max-w-sm mx-auto mb-6">
+          Monitor multiple simultaneous gas connections (Stove &amp; Geyser), track standby backup cylinders, receive smart refill warning reminders, and log cylinder booking histories.
+        </p>
+        <div class="flex gap-3 justify-center">
+          <a href="/login" class="btn btn-primary">Sign In to Dashboard</a>
+          <a href="/register" class="btn">Create Free Account</a>
+        </div>
+      </div>
+
+      <section class="glass-card p-6 mb-8">
+        <h2 class="h4 mb-4 text-accent" style="font-weight: 800; color: var(--accent-primary);">Key Features of the Cylinder Ledger</h2>
+        <div class="row gap-4" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); display: grid;">
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">🔥 Multiple Connection Placements</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Manage stove and geyser connections simultaneously. Easily switch standby cylinders into active slots with a single click.
+            </p>
+          </div>
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">📊 Automatic Run-rate Learning</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Supply custom baseline lifespans (e.g. 45 days for stove, 90 days for geyser). The system automatically tracks dates and adjusts forecasts based on your historical usage.
+            </p>
+          </div>
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">🔔 Predictive Booking Countdowns</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Avoid sudden gas out outages. Receive early warnings on your dashboard when cylinders are estimated to be 80% consumed.
+            </p>
+          </div>
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">💸 Price and Subsidy Accounts</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Keep logs of cylinder price inflation, track delivery charges, and verify government subsidies returned to your account.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- FAQ Section -->
+      <section class="glass-card p-6">
+        <h2 class="h4 mb-4" style="font-weight: 800;">Frequently Asked Questions</h2>
+        <div class="space-y-4">
+          <div>
+            <h4 class="text-xs fw-bold mb-1" style="color:var(--text-primary);">Q: How does the system estimate when gas runs empty?</h4>
+            <p class="text-xxs text-muted">A: It calculates the average days between the connect date and empty date for all previous empty cylinders connected to that placement. It uses your custom estimate as a starting fallback.</p>
+          </div>
+          <div>
+            <h4 class="text-xs fw-bold mb-1" style="color:var(--text-primary);">Q: Can I manage standby canisters?</h4>
+            <p class="text-xxs text-muted">A: Yes. You can record bookings when placed (Booked status), mark them delivered when they arrive (Standby status), and later 'Connect' them when an active canister goes empty.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  )}
+</Layout>
+
+<style is:global>
+  .btn-icon-sm {
+    width: 28px !important;
+    height: 28px !important;
+    font-size: 0.85rem !important;
+  }
+  .glass-sub-card {
+    background: rgba(255, 255, 255, 0.02) !important;
+    border-color: rgba(255, 255, 255, 0.05) !important;
+  }
+  .glass-sub-card:hover {
+    background: rgba(255, 255, 255, 0.04) !important;
+  }
+  .badge-primary {
+    background: rgba(234, 88, 12, 0.15) !important;
+    color: var(--accent-primary) !important;
+  }
+  .badge-secondary {
+    background: rgba(14, 165, 233, 0.15) !important;
+    color: #0ea5e9 !important;
+  }
+  .badge-muted {
+    background: rgba(255, 255, 255, 0.05) !important;
+    color: var(--text-muted) !important;
+  }
+  .btn-outline-danger {
+    background: rgba(225, 29, 72, 0.03) !important;
+    border: 1px solid var(--accent-danger) !important;
+    color: var(--accent-danger) !important;
+  }
+  .btn-outline-danger:hover {
+    background: var(--accent-danger) !important;
+    color: #fff !important;
+  }
+</style>
+
+<script>
+  // Client-side interactions
+  const isLoggedIn = document.documentElement.getAttribute('data-logged-in') === 'true';
+
+  if (isLoggedIn) {
+    const today = new Date().toISOString().split('T')[0];
+
+    // Helper functions for modals
+    function showModal(modalId: string) {
+      const el = document.getElementById(modalId);
+      if (el) el.style.display = 'flex';
+    }
+
+    function hideModal(modalId: string) {
+      const el = document.getElementById(modalId);
+      if (el) el.style.display = 'none';
+    }
+
+    // Modal Triggers
+    document.getElementById('bookRefillBtn')?.addEventListener('click', () => {
+      const form = document.getElementById('cylinderForm') as HTMLFormElement;
+      form.reset();
+      
+      document.getElementById('cylinderModalTitle')!.textContent = 'Book Cylinder Refill';
+      document.getElementById('cylAction')!.setAttribute('value', 'create');
+      document.getElementById('cylId')!.setAttribute('value', '');
+      
+      (document.getElementById('cylBookingDate') as HTMLInputElement).value = today;
+      (document.getElementById('cylStatus') as HTMLSelectElement).value = 'booked';
+      document.getElementById('cylStatus')?.dispatchEvent(new Event('change'));
+      
+      showModal('cylinderModal');
+    });
+
+    document.getElementById('manualCylinderLogBtn')?.addEventListener('click', () => {
+      const form = document.getElementById('cylinderForm') as HTMLFormElement;
+      form.reset();
+      
+      document.getElementById('cylinderModalTitle')!.textContent = 'Record Old Cylinder Entry';
+      document.getElementById('cylAction')!.setAttribute('value', 'create');
+      document.getElementById('cylId')!.setAttribute('value', '');
+      
+      (document.getElementById('cylBookingDate') as HTMLInputElement).value = today;
+      (document.getElementById('cylStatus') as HTMLSelectElement).value = 'empty';
+      document.getElementById('cylStatus')?.dispatchEvent(new Event('change'));
+      
+      showModal('cylinderModal');
+    });
+
+    document.getElementById('managePlacementsBtn')?.addEventListener('click', () => {
+      resetPlacementForm();
+      showModal('placementModal');
+    });
+
+    document.getElementById('onboardPlacementBtn')?.addEventListener('click', () => {
+      resetPlacementForm();
+      showModal('placementModal');
+    });
+
+    // Dynamic field toggle in cylinder modal based on status select
+    const statusSelect = document.getElementById('cylStatus') as HTMLSelectElement;
+    statusSelect?.addEventListener('change', (e) => {
+      const val = (e.target as HTMLSelectElement).value;
+      const delFields = document.getElementById('deliveryFields');
+      const connFields = document.getElementById('connectionFields');
+      const empFields = document.getElementById('emptyFields');
+      
+      const deliveryDate = document.getElementById('cylDeliveryDate') as HTMLInputElement;
+      const startDate = document.getElementById('cylStartDate') as HTMLInputElement;
+      const emptyDate = document.getElementById('cylEmptyDate') as HTMLInputElement;
+
+      if (val === 'booked') {
+        if (delFields) delFields.style.display = 'none';
+        if (connFields) connFields.style.display = 'none';
+        if (empFields) empFields.style.display = 'none';
+      } else if (val === 'delivered') {
+        if (delFields) delFields.style.display = 'block';
+        if (connFields) connFields.style.display = 'none';
+        if (empFields) empFields.style.display = 'none';
+        if (!deliveryDate.value) deliveryDate.value = today;
+      } else if (val === 'active') {
+        if (delFields) delFields.style.display = 'block';
+        if (connFields) connFields.style.display = 'block';
+        if (empFields) empFields.style.display = 'none';
+        if (!deliveryDate.value) deliveryDate.value = today;
+        if (!startDate.value) startDate.value = today;
+      } else if (val === 'empty') {
+        if (delFields) delFields.style.display = 'block';
+        if (connFields) connFields.style.display = 'block';
+        if (empFields) empFields.style.display = 'block';
+        if (!deliveryDate.value) deliveryDate.value = today;
+        if (!startDate.value) startDate.value = today;
+        if (!emptyDate.value) emptyDate.value = today;
+      }
+    });
+
+    // Edit and delete cylinders
+    document.querySelectorAll('.edit-cyl-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const c = JSON.parse(btn.getAttribute('data-json') || '{}');
+        const form = document.getElementById('cylinderForm') as HTMLFormElement;
+        form.reset();
+
+        document.getElementById('cylinderModalTitle')!.textContent = 'Edit Cylinder Record';
+        document.getElementById('cylAction')!.setAttribute('value', 'update');
+        document.getElementById('cylId')!.setAttribute('value', c.id);
+
+        (document.getElementById('cylProvider') as HTMLSelectElement).value = c.provider;
+        (document.getElementById('cylWeight') as HTMLInputElement).value = c.weight;
+        (document.getElementById('cylBookingNo') as HTMLInputElement).value = c.booking_number || '';
+        (document.getElementById('cylBookingDate') as HTMLInputElement).value = c.booking_date;
+        
+        (document.getElementById('cylStatus') as HTMLSelectElement).value = c.status;
+        
+        (document.getElementById('cylDeliveryDate') as HTMLInputElement).value = c.delivery_date || '';
+        (document.getElementById('cylPrice') as HTMLInputElement).value = c.price || '0';
+        (document.getElementById('cylSubsidy') as HTMLInputElement).value = c.subsidy || '0';
+
+        (document.getElementById('cylPlacement') as HTMLSelectElement).value = c.placement_id || '';
+        (document.getElementById('cylStartDate') as HTMLInputElement).value = c.start_date || '';
+        (document.getElementById('cylEmptyDate') as HTMLInputElement).value = c.empty_date || '';
+        (document.getElementById('cylNotes') as HTMLTextAreaElement).value = c.notes || '';
+
+        // Trigger UI toggle
+        statusSelect.dispatchEvent(new Event('change'));
+        showModal('cylinderModal');
+      });
+    });
+
+    document.querySelectorAll('.delete-cyl-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Are you sure you want to delete this cylinder record?')) return;
+        const id = btn.getAttribute('data-id');
+        try {
+          const res = await fetch('/api/cylinder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'delete', id })
+          });
+          const d = await res.json();
+          if (d.success) window.location.reload();
+          else alert(d.message || 'Failed to delete.');
+        } catch {
+          alert('Network error.');
+        }
+      });
+    });
+
+    // Connect standby cylinders and deliver bookings shortcuts
+    document.querySelectorAll('.install-standby-btn, .btn-install-shortcut').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-id');
+        const pId = btn.getAttribute('data-placement-id');
+        
+        (document.getElementById('connectDate') as HTMLInputElement).value = today;
+        if (id) {
+          (document.getElementById('connectCylId') as HTMLSelectElement).value = id;
+        }
+        if (pId) {
+          (document.getElementById('connectPlacementId') as HTMLSelectElement).value = pId;
+        }
+
+        showModal('connectModal');
+      });
+    });
+
+    document.querySelectorAll('.btn-deliver-shortcut').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-id');
+        const provider = btn.getAttribute('data-provider');
+        const price = btn.getAttribute('data-price') || '0';
+        const weight = btn.getAttribute('data-weight') || '14.2';
+        const bookingDate = btn.getAttribute('data-booking-date') || today;
+
+        const form = document.getElementById('cylinderForm') as HTMLFormElement;
+        form.reset();
+
+        document.getElementById('cylinderModalTitle')!.textContent = 'Receive Refill Delivery';
+        document.getElementById('cylAction')!.setAttribute('value', 'update');
+        document.getElementById('cylId')!.setAttribute('value', id || '');
+
+        (document.getElementById('cylProvider') as HTMLSelectElement).value = provider || 'Indane';
+        (document.getElementById('cylWeight') as HTMLInputElement).value = weight;
+        (document.getElementById('cylStatus') as HTMLSelectElement).value = 'delivered';
+        (document.getElementById('cylBookingDate') as HTMLInputElement).value = bookingDate;
+        (document.getElementById('cylDeliveryDate') as HTMLInputElement).value = today;
+        (document.getElementById('cylPrice') as HTMLInputElement).value = price;
+
+        statusSelect.dispatchEvent(new Event('change'));
+        showModal('cylinderModal');
+      });
+    });
+
+    document.querySelectorAll('.mark-empty-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-id');
+        const emptyDate = prompt('Enter date the cylinder went empty (YYYY-MM-DD):', today);
+        if (emptyDate === null) return; // cancelled
+        
+        try {
+          const res = await fetch('/api/cylinder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'markEmpty', id, emptyDate })
+          });
+          const d = await res.json();
+          if (d.success) window.location.reload();
+          else alert(d.message || 'Failed to update status.');
+        } catch {
+          alert('Network error.');
+        }
+      });
+    });
+
+    // Form Submissions
+    document.getElementById('cylinderForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target as HTMLFormElement;
+      const formData = new FormData(form);
+      const payload: Record<string, any> = {};
+      
+      formData.forEach((value, key) => {
+        payload[key] = value;
+      });
+
+      try {
+        const res = await fetch('/api/cylinder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const d = await res.json();
+        if (d.success) window.location.reload();
+        else alert(d.message || 'Failed to save cylinder.');
+      } catch {
+        alert('Network error.');
+      }
+    });
+
+    document.getElementById('connectForm')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target as HTMLFormElement;
+      const formData = new FormData(form);
+      const payload: Record<string, any> = {};
+      
+      formData.forEach((value, key) => {
+        payload[key] = value;
+      });
+
+      try {
+        const res = await fetch('/api/cylinder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const d = await res.json();
+        if (d.success) window.location.reload();
+        else alert(d.message || 'Failed to connect cylinder.');
+      } catch {
+        alert('Network error.');
+      }
+    });
+
+    // Placements management CRUD logic
+    const placementForm = document.getElementById('placementForm') as HTMLFormElement;
+    
+    function resetPlacementForm() {
+      placementForm.reset();
+      document.getElementById('placementFormTitle')!.textContent = 'Add Connection Point';
+      document.getElementById('placeAction')!.setAttribute('value', 'create');
+      document.getElementById('placeId')!.setAttribute('value', '');
+      document.getElementById('resetPlacementFormBtn')!.style.display = 'none';
+      document.getElementById('submitPlacementBtn')!.textContent = 'Save Connection';
+    }
+
+    document.getElementById('resetPlacementFormBtn')?.addEventListener('click', () => {
+      resetPlacementForm();
+    });
+
+    document.querySelectorAll('.edit-placement-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-id') || '';
+        const name = btn.getAttribute('data-name') || '';
+        const days = btn.getAttribute('data-days') || '45';
+
+        document.getElementById('placementFormTitle')!.textContent = 'Edit Connection';
+        document.getElementById('placeAction')!.setAttribute('value', 'update');
+        document.getElementById('placeId')!.setAttribute('value', id);
+        
+        (document.getElementById('placeName') as HTMLInputElement).value = name;
+        (document.getElementById('placeDays') as HTMLInputElement).value = days;
+
+        document.getElementById('resetPlacementFormBtn')!.style.display = 'inline-block';
+        document.getElementById('submitPlacementBtn')!.textContent = 'Update Connection';
+      });
+    });
+
+    document.querySelectorAll('.delete-placement-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Are you sure you want to delete this connection point? History will be preserved but placements will be cleared.')) return;
+        const id = btn.getAttribute('data-id');
+        try {
+          const res = await fetch('/api/placements', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'delete', id })
+          });
+          const d = await res.json();
+          if (d.success) window.location.reload();
+          else alert(d.message || 'Failed to delete placement.');
+        } catch {
+          alert('Network error.');
+        }
+      });
+    });
+
+    placementForm?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(placementForm);
+      const payload: Record<string, any> = {};
+      
+      formData.forEach((value, key) => {
+        payload[key] = value;
+      });
+
+      try {
+        const res = await fetch('/api/placements', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const d = await res.json();
+        if (d.success) window.location.reload();
+        else alert(d.message || 'Failed to save connection.');
+      } catch {
+        alert('Network error.');
+      }
+    });
+  }
+</script>

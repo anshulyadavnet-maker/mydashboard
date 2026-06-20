@@ -372,3 +372,97 @@ export async function getToolUsage(db: D1Database, userId: number) {
   return result.results;
 }
 
+// Cylinder Placements Helper methods
+export async function getPlacements(db: D1Database, userId: number) {
+  const result = await db.prepare(
+    'SELECT * FROM cylinder_placements WHERE user_id = ? ORDER BY name ASC'
+  ).bind(userId).all();
+  return result.results;
+}
+
+export async function createPlacement(db: D1Database, userId: number, name: string, estimatedDays: number) {
+  const result = await db.prepare(
+    'INSERT INTO cylinder_placements (user_id, name, estimated_days) VALUES (?, ?, ?)'
+  ).bind(userId, name, estimatedDays).run();
+  return result.meta?.last_row_id;
+}
+
+export async function updatePlacement(db: D1Database, id: number, userId: number, name: string, estimatedDays: number) {
+  const result = await db.prepare(
+    'UPDATE cylinder_placements SET name = ?, estimated_days = ? WHERE id = ? AND user_id = ?'
+  ).bind(name, estimatedDays, id, userId).run();
+  return result.meta?.changes || 0;
+}
+
+export async function deletePlacement(db: D1Database, id: number, userId: number) {
+  // Unset placement_id for cylinders pointing to it
+  await db.prepare('UPDATE cylinders SET placement_id = NULL WHERE placement_id = ? AND user_id = ?').bind(id, userId).run();
+  const result = await db.prepare(
+    'DELETE FROM cylinder_placements WHERE id = ? AND user_id = ?'
+  ).bind(id, userId).run();
+  return result.meta?.changes || 0;
+}
+
+// Individual Cylinder Helper methods
+export async function getCylinders(db: D1Database, userId: number) {
+  const result = await db.prepare(`
+    SELECT c.*, p.name as placement_name 
+    FROM cylinders c
+    LEFT JOIN cylinder_placements p ON c.placement_id = p.id
+    WHERE c.user_id = ?
+    ORDER BY c.booking_date DESC, c.id DESC
+  `).bind(userId).all();
+  return result.results;
+}
+
+export async function createCylinder(db: D1Database, userId: number, data: any) {
+  const result = await db.prepare(`
+    INSERT INTO cylinders 
+      (user_id, provider, booking_number, booking_date, delivery_date, start_date, empty_date, price, subsidy, weight, status, placement_id, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    userId, data.provider, data.booking_number || '', data.booking_date,
+    data.delivery_date || null, data.start_date || null, data.empty_date || null,
+    data.price || 0, data.subsidy || 0, data.weight || 14.2, data.status || 'booked',
+    data.placement_id || null, data.notes || ''
+  ).run();
+  return result.meta?.last_row_id;
+}
+
+export async function updateCylinder(db: D1Database, id: number, userId: number, data: any) {
+  const result = await db.prepare(`
+    UPDATE cylinders SET
+      provider = ?, booking_number = ?, booking_date = ?, delivery_date = ?, 
+      start_date = ?, empty_date = ?, price = ?, subsidy = ?, 
+      weight = ?, status = ?, placement_id = ?, notes = ?, updated_at = datetime('now')
+    WHERE id = ? AND user_id = ?
+  `).bind(
+    data.provider, data.booking_number || '', data.booking_date, data.delivery_date || null,
+    data.start_date || null, data.empty_date || null, data.price || 0, data.subsidy || 0,
+    data.weight || 14.2, data.status || 'booked', data.placement_id || null, data.notes || '',
+    id, userId
+  ).run();
+  return result.meta?.changes || 0;
+}
+
+export async function connectCylinder(db: D1Database, id: number, placementId: number, userId: number, connectDate: string) {
+  // 1. Find if there's any active cylinder on this placement, set it to empty
+  await db.prepare(`
+    UPDATE cylinders SET status = 'empty', empty_date = ? 
+    WHERE user_id = ? AND placement_id = ? AND status = 'active'
+  `).bind(connectDate, userId, placementId).run();
+
+  // 2. Mark this cylinder as active
+  const result = await db.prepare(`
+    UPDATE cylinders SET status = 'active', start_date = ?, placement_id = ?, updated_at = datetime('now')
+    WHERE id = ? AND user_id = ?
+  `).bind(connectDate, placementId, id, userId).run();
+
+  return result.meta?.changes || 0;
+}
+
+export async function deleteCylinder(db: D1Database, id: number, userId: number) {
+  const result = await db.prepare('DELETE FROM cylinders WHERE id = ? AND user_id = ?').bind(id, userId).run();
+  return result.meta?.changes || 0;
+}
+

@@ -128,3 +128,43 @@ CREATE TABLE IF NOT EXISTS tool_usage (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tool_usage_user ON tool_usage(user_id);
+
+-- Cylinder Placements (Locations like Kitchen, Geyser)
+CREATE TABLE IF NOT EXISTS cylinder_placements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  estimated_days INTEGER NOT NULL DEFAULT 45,
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(user_id, name)
+);
+
+-- Individual Cylinder tracking
+CREATE TABLE IF NOT EXISTS cylinders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  booking_number TEXT,
+  booking_date TEXT NOT NULL,
+  delivery_date TEXT,
+  start_date TEXT,
+  empty_date TEXT,
+  price REAL NOT NULL DEFAULT 0,
+  subsidy REAL DEFAULT 0,
+  weight REAL DEFAULT 14.2,
+  status TEXT CHECK(status IN ('booked', 'delivered', 'active', 'empty')) DEFAULT 'booked',
+  placement_id INTEGER REFERENCES cylinder_placements(id) ON DELETE SET NULL,
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_cylinder_placements_user ON cylinder_placements(user_id);
+CREATE INDEX IF NOT EXISTS idx_cylinders_user ON cylinders(user_id);
+CREATE INDEX IF NOT EXISTS idx_cylinders_status ON cylinders(status);
+
+-- Daily Visitors Tracking Table
+CREATE TABLE IF NOT EXISTS daily_visitors (
+  visit_date TEXT PRIMARY KEY, -- YYYY-MM-DD
+  viewer_count INTEGER DEFAULT 0
+);

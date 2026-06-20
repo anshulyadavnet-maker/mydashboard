@@ -113,6 +113,7 @@ const isPagesDev = Astro.url.hostname.endsWith('pages.dev');
             <a href="/expenses" class="nav-link">💸 Expenses</a>
             <a href="/notes" class="nav-link">📝 Notes</a>
             <a href="/passwords" class="nav-link">🔑 Passwords</a>
+            <a href="/cylinder" class="nav-link">🔥 Cylinder</a>
           </>
         )}
       </div>
@@ -176,6 +177,7 @@ const isPagesDev = Astro.url.hostname.endsWith('pages.dev');
             <option value="passwords">Password Vault</option>
             <option value="calculator">Smart Calculator</option>
             <option value="age-calculator">Age Calculator</option>
+            <option value="cylinder">Cylinder Tracker</option>
           </select>
           <span class="text-xs text-muted mt-1" style="display:block;">The app will load this page automatically when visited.</span>
         </div>
@@ -369,6 +371,7 @@ const isPagesDev = Astro.url.hostname.endsWith('pages.dev');
     passwords: { name: 'Vault', icon: '🔑', href: '/passwords' },
     calculator: { name: 'Calc', icon: '📊', href: '/calculator' },
     'age-calculator': { name: 'Age', icon: '🎂', href: '/age-calculator' },
+    cylinder: { name: 'Gas', icon: '🔥', href: '/cylinder' },
     login: { name: 'Login', icon: '👤', href: '/login' }
   };
 
@@ -383,9 +386,8 @@ const isPagesDev = Astro.url.hostname.endsWith('pages.dev');
       pinned = JSON.parse(localStorage.getItem('pinned_apps') || '[]');
     } catch(e) {}
     
-    // Ensure pinned apps only contain allowed ones for current auth state
     const allowedKeys = isLoggedIn 
-      ? ['home', 'milk', 'expenses', 'notes', 'passwords', 'calculator', 'age-calculator']
+      ? ['home', 'milk', 'expenses', 'notes', 'passwords', 'calculator', 'age-calculator', 'cylinder']
       : ['home', 'calculator', 'age-calculator', 'login'];
       
     if (pinned && Array.isArray(pinned)) {
@@ -473,7 +475,8 @@ const isPagesDev = Astro.url.hostname.endsWith('pages.dev');
         { id: 'notes', name: 'Notes 📝' },
         { id: 'passwords', name: 'Vault 🔑' },
         { id: 'calculator', name: 'Calculator 📊' },
-        { id: 'age-calculator', name: 'Age 🎂' }
+        { id: 'age-calculator', name: 'Age 🎂' },
+        { id: 'cylinder', name: 'Cylinder 🔥' }
       ]
     : [
         { id: 'home', name: 'Home 🏠' },
@@ -494,7 +497,7 @@ const isPagesDev = Astro.url.hostname.endsWith('pages.dev');
     } catch(e) {}
     
     const allowedKeys = isLoggedIn 
-      ? ['home', 'milk', 'expenses', 'notes', 'passwords', 'calculator', 'age-calculator']
+      ? ['home', 'milk', 'expenses', 'notes', 'passwords', 'calculator', 'age-calculator', 'cylinder']
       : ['home', 'calculator', 'age-calculator', 'login'];
       
     if (pinned && Array.isArray(pinned)) {

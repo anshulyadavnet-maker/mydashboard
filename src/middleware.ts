@@ -36,7 +36,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
     normalizedPath === '/milk' ||
     normalizedPath === '/expenses' ||
     normalizedPath === '/notes' ||
-    normalizedPath === '/passwords';
+    normalizedPath === '/passwords' ||
+    normalizedPath === '/cylinder';
 
   const isPublic = isHome || isAuthRoute || isAuthApi || isPublicTool;
 

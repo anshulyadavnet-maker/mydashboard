@@ -90,11 +90,11 @@ const TOOLS: Tool[] = [
     id: 'cylinder',
     name: 'Cylinder Tracker',
     desc: 'Track gas cylinder refill intervals, usage duration, and calculate next booking due date.',
-    href: '#cylinder',
+    href: '/cylinder',
     icon: '🔥',
     color: '#ea580c',
     requiresLogin: true,
-    isUpcoming: true,
+    isUpcoming: false,
     defaultOrder: 7,
     features: [
       'Track gas cylinder delivery dates & prices',
@@ -191,6 +191,29 @@ const TOOLS: Tool[] = [
 ];
 
 let sortedTools = [...TOOLS];
+
+// Fetch system analytics
+let userCount = 0;
+let todayViewerCount = 0;
+
+try {
+  const db = getDB(Astro);
+  
+  // 1. Fetch user count
+  const uCountRes = await db.prepare('SELECT COUNT(*) as count FROM users').first();
+  userCount = (uCountRes as any)?.count || 0;
+  
+  // 2. Fetch today's viewer count in IST (UTC+5:30)
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istDate = new Date(now.getTime() + istOffset);
+  const dateStr = istDate.toISOString().split('T')[0];
+  
+  const vCountRes = await db.prepare('SELECT viewer_count FROM daily_visitors WHERE visit_date = ?').bind(dateStr).first();
+  todayViewerCount = (vCountRes as any)?.viewer_count || 0;
+} catch (err) {
+  console.error('Error fetching analytics from database:', err);
+}
 
 if (user) {
   loggedIn = true;
@@ -410,6 +433,25 @@ const homeSchema = {
       </article>
     )}
   </main>
+
+  <!-- Bottom Analytics Stats Footer -->
+  <footer class="container mt-8 mb-4">
+    <div class="glass-card p-3 text-center flex-between flex-wrap gap-3" style="background: rgba(255,255,255,0.01); border-color: rgba(255,255,255,0.04); font-size:0.75rem;">
+      <div class="text-muted flex items-center gap-1">
+        <span>📊 Platform Analytics</span>
+      </div>
+      <div class="flex gap-4 flex-wrap items-center">
+        <div>
+          <span class="text-muted mr-1">Registered Users:</span>
+          <strong style="font-weight: 700; color: var(--accent-secondary);">{userCount}</strong>
+        </div>
+        <div>
+          <span class="text-muted mr-1">Real Viewers (Today):</span>
+          <strong style="font-weight: 700; color: var(--accent-success);" id="liveViewerCount">{todayViewerCount}</strong>
+        </div>
+      </div>
+    </div>
+  </footer>
 
   <!-- Dynamic Upcoming Tool Modal -->
   <div id="upcomingModal" class="modal-overlay" style="display:none;">
@@ -844,4 +886,50 @@ const homeSchema = {
       if (voteAlert) voteAlert.style.display = 'block';
     }, 800);
   });
+
+  // ─── Real Viewer Activity Analytics Tracking ───
+  (function() {
+    let activityCounted = false;
+
+    // Check if counted in current browser session
+    try {
+      if (sessionStorage.getItem('dashboard_viewer_counted') === 'true') {
+        activityCounted = true;
+      }
+    } catch (e) {}
+
+    const recordViewerActivity = async () => {
+      if (activityCounted) return;
+      activityCounted = true;
+
+      try {
+        sessionStorage.setItem('dashboard_viewer_counted', 'true');
+      } catch (e) {}
+
+      // Remove listeners since we only count once
+      window.removeEventListener('scroll', recordViewerActivity);
+      window.removeEventListener('click', recordViewerActivity);
+
+      try {
+        const res = await fetch('/api/viewer-ping', { method: 'POST' });
+        const d = await res.json();
+        if (d.success) {
+          // Increment the visible count instantly for live feedback
+          const viewerEl = document.getElementById('liveViewerCount');
+          if (viewerEl) {
+            const current = parseInt(viewerEl.textContent || '0');
+            viewerEl.textContent = String(current + 1);
+          }
+        }
+      } catch (e) {
+        console.error('Error reporting viewer activity:', e);
+      }
+    };
+
+    if (!activityCounted) {
+      // Add scroll and click listeners
+      window.addEventListener('scroll', recordViewerActivity, { passive: true });
+      window.addEventListener('click', recordViewerActivity);
+    }
+  })();
 </script>
