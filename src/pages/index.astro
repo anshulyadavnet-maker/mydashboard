@@ -107,11 +107,11 @@ const TOOLS: Tool[] = [
     id: 'newspaper',
     name: 'Newspaper Ledger',
     desc: 'Track daily newspaper deliveries, calculate monthly dues, and handle vacation breaks.',
-    href: '#newspaper',
+    href: '/newspaper',
     icon: '📰',
     color: '#0891b2',
     requiresLogin: true,
-    isUpcoming: true,
+    isUpcoming: false,
     defaultOrder: 8,
     features: [
       'Log daily newspaper delivery status & monthly subscription rates',
@@ -886,50 +886,4 @@ const homeSchema = {
       if (voteAlert) voteAlert.style.display = 'block';
     }, 800);
   });
-
-  // ─── Real Viewer Activity Analytics Tracking ───
-  (function() {
-    let activityCounted = false;
-
-    // Check if counted in current browser session
-    try {
-      if (sessionStorage.getItem('dashboard_viewer_counted') === 'true') {
-        activityCounted = true;
-      }
-    } catch (e) {}
-
-    const recordViewerActivity = async () => {
-      if (activityCounted) return;
-      activityCounted = true;
-
-      try {
-        sessionStorage.setItem('dashboard_viewer_counted', 'true');
-      } catch (e) {}
-
-      // Remove listeners since we only count once
-      window.removeEventListener('scroll', recordViewerActivity);
-      window.removeEventListener('click', recordViewerActivity);
-
-      try {
-        const res = await fetch('/api/viewer-ping', { method: 'POST' });
-        const d = await res.json();
-        if (d.success) {
-          // Increment the visible count instantly for live feedback
-          const viewerEl = document.getElementById('liveViewerCount');
-          if (viewerEl) {
-            const current = parseInt(viewerEl.textContent || '0');
-            viewerEl.textContent = String(current + 1);
-          }
-        }
-      } catch (e) {
-        console.error('Error reporting viewer activity:', e);
-      }
-    };
-
-    if (!activityCounted) {
-      // Add scroll and click listeners
-      window.addEventListener('scroll', recordViewerActivity, { passive: true });
-      window.addEventListener('click', recordViewerActivity);
-    }
-  })();
 </script>

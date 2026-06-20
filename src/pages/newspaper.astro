@@ -1,0 +1,943 @@
+---
+import Layout from '../components/Layout.astro';
+import { getDB } from '../lib/db';
+import {
+  getNewspaperAccounts,
+  getNewspaperEntries,
+  getNewspaperPaymentHistory,
+  recordToolUsage
+} from '../lib/db';
+import { daysInMonth } from '../lib/milk';
+import { buildNewspaperMatrixRow, detectNewspaperMissingDates, isSunday } from '../lib/newspaper';
+
+const user = Astro.locals.user;
+const isLoggedIn = !!user;
+
+let month: number = 0;
+let year: number = 0;
+let totalDays: number = 0;
+let monthName: string = '';
+let accounts: any[] = [];
+let matrix: Record<number, any> = {};
+let allPayments: any[] = [];
+let pendingCatchups: any[] = [];
+
+if (isLoggedIn) {
+  const db = getDB(Astro);
+  
+  // Record tool usage
+  await recordToolUsage(db, user.userId, 'newspaper');
+
+  const url = new URL(Astro.request.url);
+  const mParam = url.searchParams.get('m');
+  const yParam = url.searchParams.get('y');
+
+  const now = new Date();
+  month = mParam ? parseInt(mParam) : now.getMonth() + 1;
+  year = yParam ? parseInt(yParam) : now.getFullYear();
+
+  if (!month || month < 1 || month > 12) month = now.getMonth() + 1;
+  if (!year) year = now.getFullYear();
+
+  totalDays = daysInMonth(year, month);
+  const monthNamesList = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  monthName = monthNamesList[month - 1];
+
+  accounts = await getNewspaperAccounts(db, user.userId);
+  
+  for (const acc of accounts) {
+    const entries = await getNewspaperEntries(db, acc.id, year, month);
+    const payHistory = await getNewspaperPaymentHistory(db, acc.id, year, month);
+    
+    // Sum payments for this month
+    const totalPayments = payHistory.reduce((sum: number, pay: any) => sum + (Number(pay.amount) || 0), 0);
+    
+    const row = buildNewspaperMatrixRow(acc, entries, year, month, totalPayments);
+    matrix[acc.id] = row;
+    
+    // Detect missing catch-ups
+    const missing = detectNewspaperMissingDates(acc, entries, year, month);
+    if (missing.length > 0) {
+      pendingCatchups.push({
+        accountId: acc.id,
+        name: acc.name,
+        dates: missing
+      });
+    }
+    
+    // Add all payments to the month transactions list
+    for (const pay of payHistory) {
+      allPayments.push({
+        ...pay,
+        accountName: acc.name
+      });
+    }
+  }
+  
+  // Sort payments by date descending
+  allPayments.sort((a, b) => b.payment_date.localeCompare(a.payment_date));
+} else {
+  const now = new Date();
+  month = now.getMonth() + 1;
+  year = now.getFullYear();
+  totalDays = daysInMonth(year, month);
+  const monthNamesList = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  monthName = monthNamesList[month - 1];
+}
+
+const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const daysArray = Array.from({ length: 31 }, (_, i) => i + 1);
+
+const newspaperSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "How does the Newspaper Ledger track costs?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The Newspaper Ledger uses custom pricing for weekdays and Sundays, automatically calculating your monthly bill based on actual delivery logs while deducting skipped or vacation days."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I suspend deliveries during vacations?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. You can use the bulk suspension tool to schedule vacation periods. Deliveries during these dates are marked as vacation with zero charge."
+      }
+    }
+  ]
+};
+---
+
+<Layout 
+  title={`${monthName} ${year} - Newspaper Delivery Ledger`} 
+  description="Manage daily newspaper deliveries, configure weekday and Sunday rates, schedule holiday/vacation breaks, and calculate monthly bills."
+  keywords="newspaper ledger, newspaper delivery tracker, delivery register, daily log, vacation suspension"
+  schema={newspaperSchema}
+  accentColor="#0891b2"
+>
+  <style is:global>
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      font-size: 0.75rem;
+      font-weight: 700;
+      user-select: none;
+    }
+    .status-delivered {
+      background: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+    }
+    .status-skipped {
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+    }
+    .status-vacation {
+      background: rgba(245, 158, 11, 0.15);
+      color: #f59e0b;
+    }
+    .status-inactive {
+      opacity: 0.25;
+      color: var(--text-muted);
+    }
+    .newspaper-row:hover .newspaper-edit-btn {
+      opacity: 1;
+    }
+    .newspaper-edit-btn {
+      opacity: 0.3;
+      transition: opacity 0.2s;
+    }
+    .newspaper-edit-btn:hover {
+      opacity: 1 !important;
+    }
+    .newspaper-name-container {
+      max-width: 140px;
+    }
+    .sticky-col {
+      min-width: 160px !important;
+      max-width: 160px !important;
+    }
+    @media (max-width: 768px) {
+      .sticky-col {
+        min-width: 100px !important;
+        max-width: 100px !important;
+        font-size: 0.75rem;
+        padding-left: 0.4rem !important;
+        padding-right: 0.4rem !important;
+      }
+      .newspaper-name-container {
+        max-width: 75px !important;
+      }
+      .newspaper-row td.sticky-col .badge-sm {
+        font-size: 8px;
+        padding: 1px 3px;
+      }
+    }
+    .sunday-col-header {
+      color: #ef4444 !important;
+      font-weight: 800;
+    }
+    .sunday-cell {
+      background: rgba(239, 68, 68, 0.05) !important;
+    }
+    .sunday-cell:hover {
+      background: rgba(239, 68, 68, 0.09) !important;
+    }
+  </style>
+
+  {isLoggedIn ? (
+    <main class="container animate-fade-in pb-4" data-month={month} data-year={year} data-total-days={totalDays}>
+      
+      <!-- Header -->
+      <div class="flex-between flex-wrap gap-3 mb-4">
+        <div>
+          <h2 style="font-size:1.5rem;font-weight:700;margin:0;display:flex;align-items:center;gap:0.5rem;">
+            📰 Newspaper Ledger
+          </h2>
+          <p class="text-muted text-sm" style="margin:0;">
+            {monthName} {year} &mdash; Track newspaper deliveries, custom pricing, and vacations.
+          </p>
+        </div>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary btn-md" id="bulkVacationBtn">
+            ✈️ Bulk Vacation
+          </button>
+          <button class="btn btn-primary btn-md" id="addAccountBtn">
+            + Add Newspaper
+          </button>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="glass-card mb-4 p-3">
+        <div class="flex-between flex-wrap gap-3">
+          <div class="flex gap-2" style="align-items:center;">
+            <strong class="text-muted text-xs" style="text-transform:uppercase;letter-spacing:0.04em;">📅 Period:</strong>
+            <form method="GET" class="flex gap-2" id="filterForm">
+              <select name="m" class="form-select" style="width:auto;" onchange="this.form.submit()">
+                {monthNames.map((name, i) => (
+                  <option value={i + 1} selected={i + 1 === month}>{name}</option>
+                ))}
+              </select>
+              <select name="y" class="form-select" style="width:auto;" onchange="this.form.submit()">
+                {Array.from({ length: (new Date().getFullYear() + 1) - 2020 + 1 }, (_, i) => new Date().getFullYear() + 1 - i).map(y => (
+                  <option value={y} selected={y === year}>{y}</option>
+                ))}
+              </select>
+            </form>
+          </div>
+          <div class="flex gap-3 text-xs">
+            <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">
+              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#10b981;margin-right:4px;"></span>
+              Delivered
+            </span>
+            <span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #ef4444;">
+              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#ef4444;margin-right:4px;"></span>
+              Skipped
+            </span>
+            <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">
+              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f59e0b;margin-right:4px;"></span>
+              Vacation
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Ledger Table Matrix -->
+      <div class="glass-card" style="overflow:hidden;">
+        <div class="table-wrapper">
+          <table class="main-matrix">
+            <thead>
+              <tr>
+                <th class="sticky-col" style="text-align:left;padding-left:1rem;">Newspaper</th>
+                {daysArray.map(d => {
+                  const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                  const isSun = d <= totalDays && isSunday(dateStr);
+                  return (
+                    <th class={`${d <= totalDays ? '' : 'text-muted'} ${isSun ? 'sunday-col-header' : ''}`} style={d > totalDays ? 'opacity:0.3;background:rgba(0,0,0,0.05);' : ''}>
+                      {d}
+                    </th>
+                  );
+                })}
+                <th style="min-width:70px;">Delivered</th>
+                <th style="min-width:70px;">Skipped</th>
+                <th style="min-width:70px;">Vacation</th>
+                <th style="min-width:90px;color:#e0556a;">Bill</th>
+                <th style="min-width:90px;color:#00b894;">Paid</th>
+                <th style="min-width:100px;">Balance Due</th>
+              </tr>
+            </thead>
+            <tbody>
+              {accounts.length === 0 && (
+                <tr>
+                  <td colspan="39" class="empty-state" style="padding: 3rem 1rem;">
+                    No newspaper accounts configured. Click "+ Add Newspaper" to create one!
+                  </td>
+                </tr>
+              )}
+              {Object.entries(matrix).map(([aid, row]) => {
+                const acc = row.account;
+                const entries = row.entries;
+                return (
+                  <tr class="newspaper-row">
+                    <td class="sticky-col" style="padding:0.6rem 0.75rem;">
+                      <div class="fw-bold truncate flex-between newspaper-name-container">
+                        <span style={acc.active ? "color:#10b981;" : "color:#ef4444;"}>{acc.name}</span>
+                        <button class="newspaper-edit-btn" data-acc={JSON.stringify(acc)} title="Edit Subscription" style="background:none;border:none;cursor:pointer;font-size:0.8rem;padding:0;">✏️</button>
+                      </div>
+                      <div class="text-muted text-xs flex gap-1" style="align-items:center;margin-top:2px;">
+                        <span class="badge-sm" style="background:var(--bg-base);opacity:0.8;">Mon-Sat: ₹{Number(acc.rate_weekday).toFixed(1)}</span>
+                        <span class="badge-sm" style="background:var(--bg-base);opacity:0.8;">Sun: ₹{Number(acc.rate_sunday).toFixed(1)}</span>
+                      </div>
+                    </td>
+                    {daysArray.map(d => {
+                      if (d > totalDays) {
+                        return <td style="background:rgba(0,0,0,0.04);"></td>;
+                      }
+                      const cell = entries[d] || { status: 'inactive', cost: 0 };
+                      const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                      const isSun = isSunday(dateStr);
+                      const hasNote = cell.note && cell.note.trim() !== '';
+
+                      let badgeClass = 'status-inactive';
+                      let symbol = '-';
+                      let titleStr = 'Inactive';
+
+                      if (cell.status === 'delivered') {
+                        badgeClass = 'status-delivered';
+                        symbol = '✓';
+                        titleStr = `Delivered (₹${cell.cost.toFixed(2)})`;
+                      } else if (cell.status === 'skipped') {
+                        badgeClass = 'status-skipped';
+                        symbol = '✗';
+                        titleStr = 'Skipped (₹0.00)';
+                      } else if (cell.status === 'vacation') {
+                        badgeClass = 'status-vacation';
+                        symbol = 'V';
+                        titleStr = 'Vacation Break (₹0.00)';
+                      }
+
+                      if (hasNote) {
+                        titleStr += ` - Note: ${cell.note}`;
+                      }
+
+                      return (
+                        <td class={`day-cell ${isSun ? 'sunday-cell' : ''}`} data-aid={aid} data-d={d} data-date={dateStr} data-status={cell.status} data-note={hasNote ? cell.note : ''} title={titleStr} style="position:relative;cursor:pointer;">
+                          {cell.status !== 'inactive' ? (
+                            <span class={`status-badge ${badgeClass}`}>{symbol}</span>
+                          ) : (
+                            <span class="status-inactive">-</span>
+                          )}
+                          {hasNote && <span style="position: absolute; bottom: 2px; right: 2px; font-size: 9px; line-height: 1; opacity: 0.9;">📝</span>}
+                        </td>
+                      );
+                    })}
+                    <td class="text-center fw-bold">{row.totalDelivered}</td>
+                    <td class="text-center text-muted">{row.totalSkipped}</td>
+                    <td class="text-center text-muted">{row.totalVacation}</td>
+                    <td class="text-center val-payable" style="color:#e0556a;">₹{row.monthlyBill.toFixed(2)}</td>
+                    <td class="text-center val-paid day-cell add-pay-cell" data-aid={aid} style="background: rgba(16, 185, 129, 0.05); cursor:pointer;" title="Log Payment">
+                      + ₹{row.totalPaid.toFixed(2)}
+                    </td>
+                    <td class="text-center fw-bold" style={row.balanceDue > 0
+                      ? 'background: rgba(239, 68, 68, 0.08); color: #ef4444;'
+                      : row.balanceDue < 0 ? 'background: rgba(16, 185, 129, 0.08); color: #10b981;' : ''}>
+                      {row.balanceDue > 0
+                        ? <span>Due: ₹{row.balanceDue.toFixed(2)}</span>
+                        : row.balanceDue < 0
+                          ? <span>Credit: ₹{Math.abs(row.balanceDue).toFixed(2)}</span>
+                          : <span style="color:#10b981;">Settled ✓</span>
+                      }
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Payment Transactions History -->
+      {allPayments.length > 0 && (
+        <div class="glass-card mt-4 mb-4">
+          <div class="p-3" style="border-bottom:1px solid var(--border-color);">
+            <h6 style="font-weight:700;margin:0;">💳 Payment Transactions (Current Month)</h6>
+          </div>
+          <div class="table-wrapper" style="max-height:none;">
+            <table style="font-size:0.85rem;">
+              <thead>
+                <tr>
+                  <th style="text-align:left;padding-left:1rem;">Date</th>
+                  <th style="text-align:left;">Newspaper</th>
+                  <th style="text-align:right;">Amount</th>
+                  <th style="text-align:left;padding-left:1rem;">Note</th>
+                  <th style="text-align:right;padding-right:1rem;">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allPayments.map((pay: any) => (
+                  <tr>
+                    <td style="padding-left:1rem;white-space:nowrap;">
+                      {new Date(pay.payment_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </td>
+                    <td>
+                      <span class="fw-bold">{pay.accountName}</span>
+                    </td>
+                    <td class="text-end val-paid fw-bold" style="color: #10b981;">₹{Number(pay.amount).toFixed(2)}</td>
+                    <td class="text-muted text-xs" style="padding-left:1rem;">{pay.note || '\u2014'}</td>
+                    <td class="text-end" style="padding-right:1rem;white-space:nowrap;">
+                      <button class="btn btn-sm del-pay-btn" data-id={pay.id} data-aid={pay.account_id} title="Delete Payment" style="background:none;border:none;color:var(--accent-danger);cursor:pointer;font-size:1rem;padding:0 4px;">🗑️</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+    </main>
+  ) : (
+    <!-- SEO Landing Page -->
+    <main class="container animate-fade-in pb-12">
+      <div class="dashboard-hero py-12 mb-8 text-center glass-card p-8">
+        <span class="badge mb-2">📰 Daily Subscription Register</span>
+        <h1 class="h1 mb-2" style="font-weight: 800; letter-spacing: -0.02em;">Online Newspaper Delivery Ledger</h1>
+        <p class="text-muted text-sm max-w-sm mx-auto mb-6">
+          Track daily newspaper delivery status, manage custom Sunday premium rates, schedule vacation pauses automatically, and track vendor payouts.
+        </p>
+        <div class="flex gap-3 justify-center">
+          <a href="/login" class="btn btn-primary">Sign In to Dashboard</a>
+          <a href="/register" class="btn">Create Free Account</a>
+        </div>
+      </div>
+
+      <section class="glass-card p-6 mb-8">
+        <h2 class="h4 mb-4 text-accent" style="font-weight: 800;">Key Features of our Newspaper Register</h2>
+        <div class="row gap-4" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); display: grid;">
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">📅 Weekday vs Sunday pricing</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Specify distinct subscription costs for regular weekdays and Sunday premium editions to calculate accurate bills.
+            </p>
+          </div>
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">✈️ Bulk vacation pauses</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Suspend delivery tracking instantly during vacation intervals. Paused days are marked as vacation with ₹0 billing automatically.
+            </p>
+          </div>
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">💳 Payout logging and arrears</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Record cash, UPI, or card payments made to your newspaper vendor. Keep a clean record of outstanding monthly dues.
+            </p>
+          </div>
+          <div class="highlight-box">
+            <h3 class="h6 fw-bold mb-2">📝 Log reasons & details</h3>
+            <p class="text-xs text-muted leading-relaxed" style="margin: 0;">
+              Add notes to skipped days (e.g. "Paper agency holiday", "Rain delay") and hover cells to view them as interactive tooltips.
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
+  )}
+
+  <!-- ==========================================
+       MODALS SECTION
+       ========================================== -->
+
+  <!-- Modal 1: Add/Edit Account -->
+  <div class="modal-overlay" id="accountModal" style="display:none;">
+    <div class="modal-content modal-md">
+      <div class="modal-header">
+        <h5 class="modal-title" id="accountModalTitle">Add Newspaper Account</h5>
+        <button class="btn-close" onclick="closeModal('accountModal')">&times;</button>
+      </div>
+      <form id="accountForm">
+        <input type="hidden" name="action" value="add_or_edit_account">
+        <input type="hidden" name="account_id" id="accId" value="0">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label" for="accName">Newspaper Name *</label>
+            <input type="text" id="accName" name="name" class="form-control" placeholder="e.g. Times of India, Dainik Jagran" required>
+          </div>
+          <div class="row gap-3 mb-3">
+            <div style="flex:1;">
+              <label class="form-label" for="rateWeekday">Weekday Rate (Mon-Sat) *</label>
+              <input type="number" step="0.1" id="rateWeekday" name="rate_weekday" class="form-control" value="5.0" required>
+            </div>
+            <div style="flex:1;">
+              <label class="form-label" for="rateSunday">Sunday Rate *</label>
+              <input type="number" step="0.1" id="rateSunday" name="rate_sunday" class="form-control" value="7.0" required>
+            </div>
+          </div>
+          <div class="row gap-3 mb-3">
+            <div style="flex:1;">
+              <label class="form-label" for="startDate">Start Date (Optional)</label>
+              <input type="date" id="startDate" name="start_date" class="form-control">
+            </div>
+            <div style="flex:1;">
+              <label class="form-label" for="endDate">End Date (Optional)</label>
+              <input type="date" id="endDate" name="end_date" class="form-control">
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="pin-checkbox-label">
+              <input type="checkbox" name="active" value="1" id="accActive" checked>
+              <span>Subscription is Active</span>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('accountModal')">Cancel</button>
+          <button type="button" class="btn btn-danger" id="deleteAccBtn" style="display:none; margin-right:auto;">Delete</button>
+          <button type="submit" class="btn btn-primary">Save Settings</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 2: Edit Daily Entry Status -->
+  <div class="modal-overlay" id="statusModal" style="display:none;">
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Delivery Status</h5>
+        <button class="btn-close" onclick="closeModal('statusModal')">&times;</button>
+      </div>
+      <form id="statusForm">
+        <input type="hidden" name="action" value="update_entry">
+        <input type="hidden" name="account_id" id="statusAccId">
+        <input type="hidden" name="entry_date" id="statusDate">
+        <div class="modal-body">
+          <div class="mb-3 text-center">
+            <strong id="statusDateLabel" style="font-size:1.1rem; color:var(--accent-primary);"></strong>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Delivery Status</label>
+            <select name="status" id="statusSelect" class="form-select">
+              <option value="delivered">Delivered (Rate applies)</option>
+              <option value="skipped">Skipped (₹0)</option>
+              <option value="vacation">Vacation/Pause (₹0)</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label" for="statusNote">Reason / Note</label>
+            <input type="text" id="statusNote" name="note" class="form-control" placeholder="e.g. Vendor vacation, Rain, Holiday">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('statusModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary w-100">Update Cell</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 3: Add/Edit Payment -->
+  <div class="modal-overlay" id="paymentModal" style="display:none;">
+    <div class="modal-content modal-sm" style="text-align:center;">
+      <div class="modal-header">
+        <h5 class="modal-title">Log Vendor Payment</h5>
+        <button class="btn-close" onclick="closeModal('paymentModal')">&times;</button>
+      </div>
+      <form id="paymentForm">
+        <input type="hidden" name="action" value="add_payment">
+        <input type="hidden" name="account_id" id="payAccId">
+        <div class="modal-body">
+          <div style="font-size:2.5rem; margin-bottom: 0.5rem;">💵</div>
+          <div class="mb-3">
+            <input type="number" step="0.01" name="amount" id="payAmount"
+                   class="form-control text-center fw-bold"
+                   style="font-size:1.4rem;"
+                   placeholder="Amount (₹)" required autofocus>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" style="text-align:left; display:block;" for="payDate">Payment Date</label>
+            <input type="date" name="payment_date" class="form-control" id="payDate" required>
+          </div>
+          <div class="mb-2">
+            <input type="text" name="note" id="payNote" class="form-control" placeholder="Payment Note (e.g. UPI, cash, Ref)">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('paymentModal')">Cancel</button>
+          <button type="submit" class="btn btn-success w-100">Save Payment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 4: Bulk Vacation Suspension -->
+  <div class="modal-overlay" id="bulkVacationModal" style="display:none;">
+    <div class="modal-content modal-md">
+      <div class="modal-header">
+        <h5 class="modal-title">Schedule Bulk Vacation Break</h5>
+        <button class="btn-close" onclick="closeModal('bulkVacationModal')">&times;</button>
+      </div>
+      <form id="bulkVacationForm">
+        <input type="hidden" name="action" value="bulk_suspension">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label" for="bulkAccId">Select Newspaper</label>
+            <select name="account_id" id="bulkAccId" class="form-select" required>
+              {accounts.map(acc => (
+                <option value={acc.id}>{acc.name}</option>
+              ))}
+            </select>
+          </div>
+          <div class="row gap-3 mb-3">
+            <div style="flex:1;">
+              <label class="form-label" for="bulkStartDate">Start Date *</label>
+              <input type="date" id="bulkStartDate" name="start_date" class="form-control" required>
+            </div>
+            <div style="flex:1;">
+              <label class="form-label" for="bulkEndDate">End Date *</label>
+              <input type="date" id="bulkEndDate" name="end_date" class="form-control" required>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="bulkStatus">Mark Days As</label>
+            <select name="status" id="bulkStatus" class="form-select">
+              <option value="vacation" selected>Vacation (₹0)</option>
+              <option value="skipped">Skipped (₹0)</option>
+              <option value="delivered">Delivered (Weekday/Sunday rate)</option>
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label" for="bulkNote">Vacation Note / Reason</label>
+            <input type="text" id="bulkNote" name="note" class="form-control" placeholder="e.g. Out of town, Family function">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('bulkVacationModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary w-100">Schedule Vacation Break</button>
+        </div>
+      </form>
+    </div>
+  <!-- Modal 5: Catch-up Modal -->
+  {pendingCatchups.length > 0 && (
+    <div class="modal-overlay" id="catchupModal" style="display:flex;">
+      <div class="modal-content modal-md">
+        <div class="modal-header">
+          <h5 class="modal-title">📰 Log Delivery Catch-Up</h5>
+          <button class="btn-close" onclick="closeModal('catchupModal')">&times;</button>
+        </div>
+        <form id="catchupForm">
+          <input type="hidden" name="action" value="catchup">
+          <input type="hidden" name="account_ids" value={pendingCatchups.map(c => c.accountId).join(',')}>
+          
+          <div class="modal-body text-xs" style="max-height: 400px; overflow-y: auto;">
+            <p class="text-sm mb-3">
+              We found dates without delivery logs for this month up to today. Please confirm delivery status:
+            </p>
+            
+            {pendingCatchups.map(c => (
+              <div class="glass-card p-3 mb-3" style="background: rgba(255,255,255,0.03);">
+                <input type="hidden" name={`all_dates_${c.accountId}`} value={c.dates.join(',')}>
+                <h6 class="fw-bold mb-2 text-accent" style="color:var(--accent-primary);">{c.name}</h6>
+                
+                <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 0.5rem;" class="mb-2">
+                  {c.dates.map(dateStr => {
+                    const dNum = new Date(dateStr + 'T00:00:00Z').getUTCDate();
+                    return (
+                      <label class="pin-checkbox-label" style="padding: 0.3rem; font-size: 0.8rem; margin: 0; background: var(--bg-base); border-radius: 4px; display: flex; align-items: center; justify-content: start; gap: 4px;">
+                        <input type="checkbox" name={`delivered_dates_${c.accountId}`} value={dateStr} checked />
+                        <span>Day {dNum}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            
+            <div class="alert alert-warning p-2 text-xs mb-0" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 6px; color: #f59e0b; line-height: 1.4;">
+              ⚠️ <strong>Warning:</strong> Untick checkboxes for any dates where delivery was skipped or you were on vacation before submitting. Unticked days will be marked as <strong>skipped</strong>.
+            </div>
+          </div>
+          
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('catchupModal')">Dismiss</button>
+            <button type="submit" class="btn btn-primary">Submit Logs</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )}
+
+</Layout>
+
+<script>
+  // ─── Modal Utility ───
+  (window as any).closeModal = function(id: string) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  };
+
+  function showModal(id: string) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'flex';
+  }
+
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  const mainEl = document.querySelector('main');
+  const monthVal = mainEl?.dataset.month || '';
+  const yearVal = mainEl?.dataset.year || '';
+  const totalDaysVal = mainEl?.dataset.totalDays || '';
+
+  const currentMonthStart = `${yearVal}-${String(monthVal).padStart(2, '0')}-01`;
+  const currentMonthEnd = `${yearVal}-${String(monthVal).padStart(2, '0')}-${String(totalDaysVal).padStart(2, '0')}`;
+
+  // Pre-fill dates
+  const payDateEl = document.getElementById('payDate') as HTMLInputElement;
+  if (payDateEl) payDateEl.value = todayStr;
+
+  const bulkStartEl = document.getElementById('bulkStartDate') as HTMLInputElement;
+  if (bulkStartEl) bulkStartEl.value = todayStr;
+  const bulkEndEl = document.getElementById('bulkEndDate') as HTMLInputElement;
+  if (bulkEndEl) bulkEndEl.value = todayStr;
+
+  // ─── Auto scroll to today's date column ───
+  try {
+    const todayDayNum = parseInt(todayStr.split('-')[2]);
+    const tableWrapper = document.querySelector('.table-wrapper') as HTMLElement;
+    const todayCell = document.querySelector(`.day-cell[data-d="${todayDayNum}"]`) as HTMLElement;
+    if (tableWrapper && todayCell) {
+      setTimeout(() => {
+        const wrapperWidth = tableWrapper.offsetWidth;
+        const cellLeft = todayCell.offsetLeft;
+        const cellWidth = todayCell.offsetWidth;
+        tableWrapper.scrollLeft = cellLeft - (wrapperWidth / 2) + (cellWidth / 2);
+      }, 100);
+    }
+  } catch (e) {
+    console.error('Error auto-scrolling to today:', e);
+  }
+
+  // ─── Event Listeners ───
+  
+  // Add Account Button
+  document.getElementById('addAccountBtn')?.addEventListener('click', () => {
+    const frm = document.getElementById('accountForm') as HTMLFormElement;
+    if (frm) frm.reset();
+    
+    const accIdInput = document.getElementById('accId') as HTMLInputElement;
+    if (accIdInput) accIdInput.value = '0';
+
+    const startDateInput = document.getElementById('startDate') as HTMLInputElement;
+    if (startDateInput) startDateInput.value = currentMonthStart;
+    
+    const endDateInput = document.getElementById('endDate') as HTMLInputElement;
+    if (endDateInput) endDateInput.value = currentMonthEnd;
+    
+    const deleteBtn = document.getElementById('deleteAccBtn') as HTMLElement;
+    if (deleteBtn) deleteBtn.style.display = 'none';
+    
+    const titleEl = document.getElementById('accountModalTitle');
+    if (titleEl) titleEl.textContent = 'Add Newspaper Account';
+    
+    showModal('accountModal');
+  });
+
+  // Edit Account pencil icons
+  document.querySelectorAll('.newspaper-edit-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const accDataStr = (btn as HTMLElement).dataset.acc;
+      if (!accDataStr) return;
+      const acc = JSON.parse(accDataStr);
+
+      const frm = document.getElementById('accountForm') as HTMLFormElement;
+      if (frm) frm.reset();
+
+      const accIdInput = document.getElementById('accId') as HTMLInputElement;
+      if (accIdInput) accIdInput.value = acc.id;
+
+      const accName = document.getElementById('accName') as HTMLInputElement;
+      if (accName) accName.value = acc.name;
+
+      const rateWeekday = document.getElementById('rateWeekday') as HTMLInputElement;
+      if (rateWeekday) rateWeekday.value = acc.rate_weekday;
+
+      const rateSunday = document.getElementById('rateSunday') as HTMLInputElement;
+      if (rateSunday) rateSunday.value = acc.rate_sunday;
+
+      const startDate = document.getElementById('startDate') as HTMLInputElement;
+      if (startDate) startDate.value = acc.start_date || '';
+
+      const endDate = document.getElementById('endDate') as HTMLInputElement;
+      if (endDate) endDate.value = acc.end_date || '';
+
+      const accActive = document.getElementById('accActive') as HTMLInputElement;
+      if (accActive) accActive.checked = acc.active === 1;
+
+      const deleteBtn = document.getElementById('deleteAccBtn') as HTMLElement;
+      if (deleteBtn) deleteBtn.style.display = 'inline-block';
+
+      const titleEl = document.getElementById('accountModalTitle');
+      if (titleEl) titleEl.textContent = 'Edit Newspaper Settings';
+
+      showModal('accountModal');
+    });
+  });
+
+  // Bulk Vacation Button
+  document.getElementById('bulkVacationBtn')?.addEventListener('click', () => {
+    showModal('bulkVacationModal');
+  });
+
+  // Main Matrix Delegated Events
+  document.querySelector('.main-matrix')?.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+
+    // 1. Log Payment click cell
+    const payCell = target.closest('.val-paid.day-cell') as HTMLElement;
+    if (payCell) {
+      const aid = payCell.dataset.aid || '';
+      const frm = document.getElementById('paymentForm') as HTMLFormElement;
+      if (frm) {
+        frm.reset();
+        const payAccId = document.getElementById('payAccId') as HTMLInputElement;
+        if (payAccId) payAccId.value = aid;
+        const payDate = document.getElementById('payDate') as HTMLInputElement;
+        if (payDate) payDate.value = todayStr;
+      }
+      showModal('paymentModal');
+      return;
+    }
+
+    // 2. Click Day Cell to toggle status
+    const dayCell = target.closest('.day-cell[data-date]') as HTMLElement;
+    if (dayCell) {
+      const dateStr = dayCell.dataset.date || '';
+      const aid = dayCell.dataset.aid || '';
+      const status = dayCell.dataset.status || 'delivered';
+      const note = dayCell.dataset.note || '';
+
+      if (status === 'inactive') return; // Do not edit inactive cells
+
+      const dateLabel = document.getElementById('statusDateLabel');
+      if (dateLabel) dateLabel.textContent = dateStr;
+
+      const statusAccId = document.getElementById('statusAccId') as HTMLInputElement;
+      if (statusAccId) statusAccId.value = aid;
+
+      const statusDate = document.getElementById('statusDate') as HTMLInputElement;
+      if (statusDate) statusDate.value = dateStr;
+
+      const statusSelect = document.getElementById('statusSelect') as HTMLSelectElement;
+      if (statusSelect) statusSelect.value = status;
+
+      const statusNote = document.getElementById('statusNote') as HTMLInputElement;
+      if (statusNote) statusNote.value = note;
+
+      showModal('statusModal');
+      return;
+    }
+  });
+
+  // Form Submissions Ajax handlers
+  const handleFormSubmit = async (formId: string, modalId: string) => {
+    const form = document.getElementById(formId) as HTMLFormElement;
+    if (!form) return;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(form);
+      
+      // Make checkboxes send standard values
+      if (formId === 'accountForm') {
+        const activeCheck = document.getElementById('accActive') as HTMLInputElement;
+        if (activeCheck) {
+          formData.set('active', activeCheck.checked ? '1' : '0');
+        }
+      }
+
+      try {
+        const res = await fetch('/api/newspaper', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await res.json();
+        if (data.success) {
+          (window as any).closeModal(modalId);
+          window.location.reload();
+        } else {
+          alert('Error: ' + data.message);
+        }
+      } catch (err: any) {
+        alert('Network error: ' + err.message);
+      }
+    });
+  };
+
+  handleFormSubmit('accountForm', 'accountModal');
+  handleFormSubmit('statusForm', 'statusModal');
+  handleFormSubmit('paymentForm', 'paymentModal');
+  handleFormSubmit('bulkVacationForm', 'bulkVacationModal');
+  handleFormSubmit('catchupForm', 'catchupModal');
+
+  // Handle Account Delete
+  document.getElementById('deleteAccBtn')?.addEventListener('click', async () => {
+    const accIdInput = document.getElementById('accId') as HTMLInputElement;
+    const accountId = parseInt(accIdInput?.value) || 0;
+    if (!accountId) return;
+
+    if (!confirm('Are you absolutely sure you want to delete this newspaper subscription? This will delete all delivery logs and payments recorded for it.')) {
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/newspaper', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete_account', account_id: accountId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        (window as any).closeModal('accountModal');
+        window.location.reload();
+      } else {
+        alert('Error deleting subscription: ' + data.message);
+      }
+    } catch (err: any) {
+      alert('Delete failed: ' + err.message);
+    }
+  });
+
+  // Handle Payout Transaction Delete
+  document.querySelectorAll('.del-pay-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const payId = (btn as HTMLElement).dataset.id;
+      const accId = (btn as HTMLElement).dataset.aid;
+      if (!payId || !accId) return;
+
+      if (!confirm('Remove this payment transaction record?')) return;
+
+      try {
+        const res = await fetch('/api/newspaper', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'delete_payment', payment_id: payId, account_id: accId })
+        });
+        const data = await res.json();
+        if (data.success) {
+          window.location.reload();
+        } else {
+          alert('Failed to delete payment: ' + data.message);
+        }
+      } catch (err: any) {
+        alert('Delete payment network error: ' + err.message);
+      }
+    });
+  });
+</script>

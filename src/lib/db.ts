@@ -467,3 +467,153 @@ export async function deleteCylinder(db: D1Database, id: number, userId: number)
   return result.meta?.changes || 0;
 }
 
+// ==========================================
+// Newspaper Ledger Helper Methods
+// ==========================================
+
+export async function getNewspaperAccounts(db: D1Database, userId: number) {
+  const result = await db.prepare(
+    'SELECT * FROM newspaper_accounts WHERE user_id = ? ORDER BY id ASC'
+  ).bind(userId).all();
+  return result.results;
+}
+
+export async function getNewspaperAccountById(db: D1Database, accountId: number, userId: number) {
+  return await db.prepare(
+    'SELECT * FROM newspaper_accounts WHERE id = ? AND user_id = ?'
+  ).bind(accountId, userId).first();
+}
+
+export async function createNewspaperAccount(db: D1Database, userId: number, data: any) {
+  const result = await db.prepare(`
+    INSERT INTO newspaper_accounts (user_id, name, rate_weekday, rate_sunday, active, start_date, end_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    userId,
+    data.name,
+    data.rate_weekday ?? 5.0,
+    data.rate_sunday ?? 7.0,
+    data.active ?? 1,
+    data.start_date || null,
+    data.end_date || null
+  ).run();
+  return result.meta?.last_row_id;
+}
+
+export async function updateNewspaperAccount(db: D1Database, accountId: number, userId: number, data: any) {
+  const result = await db.prepare(`
+    UPDATE newspaper_accounts SET
+      name = ?,
+      rate_weekday = ?,
+      rate_sunday = ?,
+      active = ?,
+      start_date = ?,
+      end_date = ?
+    WHERE id = ? AND user_id = ?
+  `).bind(
+    data.name,
+    data.rate_weekday,
+    data.rate_sunday,
+    data.active,
+    data.start_date || null,
+    data.end_date || null,
+    accountId,
+    userId
+  ).run();
+  return result.meta?.changes || 0;
+}
+
+export async function deleteNewspaperAccount(db: D1Database, accountId: number, userId: number) {
+  // Verify ownership first
+  const account = await getNewspaperAccountById(db, accountId, userId);
+  if (!account) return 0;
+
+  // Cascade delete payments and entries manually just in case
+  await db.prepare('DELETE FROM newspaper_payments WHERE account_id = ?').bind(accountId).run();
+  await db.prepare('DELETE FROM newspaper_entries WHERE account_id = ?').bind(accountId).run();
+  
+  const result = await db.prepare(
+    'DELETE FROM newspaper_accounts WHERE id = ? AND user_id = ?'
+  ).bind(accountId, userId).run();
+  return result.meta?.changes || 0;
+}
+
+export async function getNewspaperEntries(db: D1Database, accountId: number, year: number, month: number) {
+  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+  const endDate = `${year}-${String(month).padStart(2, '0')}-31`;
+  const result = await db.prepare(`
+    SELECT entry_date, status, note 
+    FROM newspaper_entries 
+    WHERE account_id = ? AND entry_date >= ? AND entry_date <= ?
+    ORDER BY entry_date ASC
+  `).bind(accountId, startDate, endDate).all();
+  return result.results;
+}
+
+export async function upsertNewspaperEntry(db: D1Database, accountId: number, entryDate: string, status: string, note?: string | null) {
+  const cleanNote = (note && note !== 'null' && note !== 'NULL' && note.trim() !== '') ? note.trim() : null;
+  await db.prepare(`
+    INSERT INTO newspaper_entries (account_id, entry_date, status, note)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(account_id, entry_date) DO UPDATE SET status = ?, note = ?
+  `).bind(accountId, entryDate, status, cleanNote, status, cleanNote).run();
+}
+
+export async function bulkSetNewspaperStatus(db: D1Database, accountId: number, startDate: string, endDate: string, status: string, note?: string | null) {
+  const cleanNote = (note && note !== 'null' && note !== 'NULL' && note.trim() !== '') ? note.trim() : null;
+  
+  const start = new Date(startDate + 'T00:00:00Z');
+  const end = new Date(endDate + 'T00:00:00Z');
+  const stmts: any[] = [];
+  const current = new Date(start);
+  
+  while (current <= end) {
+    const dateStr = current.toISOString().split('T')[0];
+    stmts.push(db.prepare(`
+      INSERT INTO newspaper_entries (account_id, entry_date, status, note)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(account_id, entry_date) DO UPDATE SET status = ?, note = ?
+    `).bind(accountId, dateStr, status, cleanNote, status, cleanNote));
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+
+  for (let i = 0; i < stmts.length; i += 10) {
+    const batch = stmts.slice(i, i + 10);
+    await db.batch(batch);
+  }
+}
+
+export async function getNewspaperPayments(db: D1Database, accountId: number) {
+  const result = await db.prepare(
+    'SELECT SUM(amount) as total_paid FROM newspaper_payments WHERE account_id = ?'
+  ).bind(accountId).first();
+  return (result as any)?.total_paid || 0;
+}
+
+export async function getNewspaperPaymentHistory(db: D1Database, accountId: number, year: number, month: number) {
+  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+  const endDate = `${year}-${String(month).padStart(2, '0')}-31`;
+  const result = await db.prepare(`
+    SELECT * FROM newspaper_payments 
+    WHERE account_id = ? AND payment_date >= ? AND payment_date <= ?
+    ORDER BY payment_date DESC, id DESC
+  `).bind(accountId, startDate, endDate).all();
+  return result.results;
+}
+
+export async function createNewspaperPayment(db: D1Database, accountId: number, amount: number, paymentDate: string, note?: string | null) {
+  const cleanNote = (note && note !== 'null' && note !== 'NULL' && note.trim() !== '') ? note.trim() : null;
+  const result = await db.prepare(`
+    INSERT INTO newspaper_payments (account_id, amount, payment_date, note)
+    VALUES (?, ?, ?, ?)
+  `).bind(accountId, amount, paymentDate, cleanNote).run();
+  return result.meta?.last_row_id;
+}
+
+export async function deleteNewspaperPayment(db: D1Database, paymentId: number, accountId: number) {
+  const result = await db.prepare(
+    'DELETE FROM newspaper_payments WHERE id = ? AND account_id = ?'
+  ).bind(paymentId, accountId).run();
+  return result.meta?.changes || 0;
+}
+

@@ -169,3 +169,41 @@ CREATE TABLE IF NOT EXISTS daily_visitors (
   visit_date TEXT PRIMARY KEY, -- YYYY-MM-DD
   viewer_count INTEGER DEFAULT 0
 );
+
+-- Newspaper Subscriptions (weekday/Sunday pricing)
+CREATE TABLE IF NOT EXISTS newspaper_accounts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,                  -- e.g. "Times of India", "Economic Times"
+  rate_weekday REAL NOT NULL DEFAULT 5.0,  -- Monday-Saturday rate
+  rate_sunday REAL NOT NULL DEFAULT 7.0,   -- Sunday rate
+  active INTEGER DEFAULT 1,            -- Active subscription status
+  start_date TEXT,                     -- Track subscription span
+  end_date TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Daily Newspaper Delivery Log
+CREATE TABLE IF NOT EXISTS newspaper_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL REFERENCES newspaper_accounts(id) ON DELETE CASCADE,
+  entry_date TEXT NOT NULL,            -- YYYY-MM-DD
+  status TEXT CHECK(status IN ('delivered', 'skipped', 'vacation')) DEFAULT 'delivered',
+  note TEXT,                           -- Reason for skips or vacations
+  UNIQUE(account_id, entry_date)
+);
+
+-- Newspaper Vendor Payments
+CREATE TABLE IF NOT EXISTS newspaper_payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL REFERENCES newspaper_accounts(id) ON DELETE CASCADE,
+  amount REAL NOT NULL,
+  payment_date TEXT NOT NULL,          -- YYYY-MM-DD
+  note TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Database Indices for Query Speed
+CREATE INDEX IF NOT EXISTS idx_newspaper_accounts_user ON newspaper_accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_newspaper_entries_account ON newspaper_entries(account_id);
+CREATE INDEX IF NOT EXISTS idx_newspaper_payments_account ON newspaper_payments(account_id);

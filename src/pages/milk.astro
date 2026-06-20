@@ -17,6 +17,7 @@ import {
   daysInMonth, previousMonth, buildMatrixRow, detectMissingAutofills,
   getCarryForwardData,
 } from '../lib/milk';
+import { isSunday } from '../lib/newspaper';
 
 const user = Astro.locals.user;
 const isLoggedIn = !!user;
@@ -146,6 +147,39 @@ const daysArray = Array.from({ length: 31 }, (_, i) => i + 1);
       color: var(--accent-secondary);
       text-decoration: underline;
     }
+    .supplier-name-container {
+      max-width: 130px;
+    }
+    .sticky-col {
+      min-width: 150px !important;
+      max-width: 150px !important;
+    }
+    @media (max-width: 768px) {
+      .sticky-col {
+        min-width: 95px !important;
+        max-width: 95px !important;
+        font-size: 0.75rem;
+        padding-left: 0.4rem !important;
+        padding-right: 0.4rem !important;
+      }
+      .supplier-name-container {
+        max-width: 70px !important;
+      }
+      .main-matrix td.sticky-col .badge-sm {
+        font-size: 8px;
+        padding: 1px 3px;
+      }
+    }
+    .sunday-col-header {
+      color: #ef4444 !important;
+      font-weight: 800;
+    }
+    .sunday-cell {
+      background: rgba(239, 68, 68, 0.05) !important;
+    }
+    .sunday-cell:hover {
+      background: rgba(239, 68, 68, 0.09) !important;
+    }
   </style>
   {isLoggedIn ? (
     <main class="container animate-fade-in pb-4">
@@ -188,12 +222,16 @@ const daysArray = Array.from({ length: 31 }, (_, i) => i + 1);
           <table class="main-matrix">
             <thead>
               <tr>
-                <th class="sticky-col" style="text-align:left;padding-left:1rem;min-width:210px;">Supplier Details</th>
-                {daysArray.map(d => (
-                  <th class={d <= totalDays ? '' : 'text-muted'} style={d > totalDays ? 'opacity:0.3;background:rgba(0,0,0,0.05);' : ''}>
-                    {d}
-                  </th>
-                ))}
+                <th class="sticky-col" style="text-align:left;padding-left:1rem;">Supplier</th>
+                {daysArray.map(d => {
+                  const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                  const isSun = d <= totalDays && isSunday(dateStr);
+                  return (
+                    <th class={`${d <= totalDays ? '' : 'text-muted'} ${isSun ? 'sunday-col-header' : ''}`} style={d > totalDays ? 'opacity:0.3;background:rgba(0,0,0,0.05);' : ''}>
+                      {d}
+                    </th>
+                  );
+                })}
                 <th style="min-width:70px;">Total</th>
                 <th style="min-width:90px;color:#e0556a;">Payable</th>
                 <th style="min-width:90px;color:#00b894;">Paid</th>
@@ -210,14 +248,13 @@ const daysArray = Array.from({ length: 31 }, (_, i) => i + 1);
                 return (
                   <tr>
                     <td class="sticky-col supplier-edit-trigger" style="padding:0.6rem 0.75rem; cursor:pointer;" data-acc-id={acc.id}>
-                      <div class="fw-bold truncate supplier-name" style="max-width:180px;" title="Edit Configuration">
-                        <span style="font-size:0.8rem; margin-right:4px;">✏️</span>
-                        {acc.milksupplier_name}
-                        {!acc.active ? <span class="badge-sm" style="background:rgba(224,85,106,0.2);color:#e0556a;margin-left:4px;">Inactive</span> : ''}
+                      <div class="fw-bold truncate supplier-name supplier-name-container" title="Edit Configuration">
+                        <span style={acc.active ? "color:#10b981;" : "color:#ef4444;"}>{acc.milksupplier_name}</span>
+                        <span style="font-size:0.8rem; margin-left:4px;">✏️</span>
                       </div>
                       <div class="text-muted text-xs flex gap-1" style="align-items:center;margin-top:2px;">
                         <span class="badge-sm" style="background:var(--bg-base);opacity:0.8;">{acc.category_name}</span>
-                        <span>₹{Number(acc.rate).toFixed(2)}/kg</span>
+                        <span>₹{Number(acc.rate) % 1 === 0 ? Number(acc.rate).toFixed(0) : Number(acc.rate).toFixed(2)}/L</span>
                       </div>
                     </td>
                     {daysArray.map(d => {
@@ -229,9 +266,10 @@ const daysArray = Array.from({ length: 31 }, (_, i) => i + 1);
                       const isManual = cell.type === 'manual';
                       const cellColor = cell.q > 0 ? (isAuto ? 'var(--accent-secondary)' : 'var(--accent-warning)') : 'var(--text-muted)';
                       const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                      const isSun = isSunday(dateStr);
                       const hasNote = cell.note && cell.note !== 'null' && cell.note !== 'NULL' && cell.note.trim() !== '';
                       return (
-                        <td class="day-cell" data-aid={aid} data-d={d} data-date={dateStr} data-note={hasNote ? cell.note : ''} title={hasNote ? `Note: ${cell.note}` : undefined}>
+                        <td class={`day-cell ${isSun ? 'sunday-cell' : ''}`} data-aid={aid} data-d={d} data-date={dateStr} data-note={hasNote ? cell.note : ''} title={hasNote ? `Note: ${cell.note}` : undefined}>
                           <div class="day-cell-value" style={`color: ${cellColor}`}>
                             {cell.q > 0 ? cell.q : '-'}
                           </div>
@@ -619,6 +657,25 @@ const daysArray = Array.from({ length: 31 }, (_, i) => i + 1);
   if (payDateInput && !payDateInput.value) {
     const now = new Date();
     payDateInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }
+
+  // ─── Auto scroll to today's date column ───
+  try {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const todayDayNum = parseInt(todayStr.split('-')[2]);
+    const tableWrapper = document.querySelector('.table-wrapper') as HTMLElement;
+    const todayCell = document.querySelector(`.day-cell[data-d="${todayDayNum}"]`) as HTMLElement;
+    if (tableWrapper && todayCell) {
+      setTimeout(() => {
+        const wrapperWidth = tableWrapper.offsetWidth;
+        const cellLeft = todayCell.offsetLeft;
+        const cellWidth = todayCell.offsetWidth;
+        tableWrapper.scrollLeft = cellLeft - (wrapperWidth / 2) + (cellWidth / 2);
+      }, 100);
+    }
+  } catch (e) {
+    console.error('Error auto-scrolling to today:', e);
   }
 </script>
 <script define:vars={{ accounts, pendingAutofills }}>
