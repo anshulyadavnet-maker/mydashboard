@@ -1,6 +1,7 @@
 export interface EntryCell {
   q: number;
   type: 'auto' | 'manual' | 'none';
+  note?: string;
 }
 
 export interface MatrixRow {
@@ -56,7 +57,11 @@ export function buildMatrixRow(account: any, dbEntries: any[], daysInMonth: numb
   const entriesMap: Record<number, { q: number; type: 'auto' | 'manual' | 'none' }> = {};
   for (const entry of dbEntries) {
     const day = new Date(entry.entry_date + 'T00:00:00Z').getUTCDate();
-    entriesMap[day] = { q: Number(entry.quantity) || 0, type: (entry.entry_type === 'manual' ? 'manual' : 'auto') as 'manual' | 'auto' };
+    entriesMap[day] = {
+      q: Number(entry.quantity) || 0,
+      type: (entry.entry_type === 'manual' ? 'manual' : 'auto') as 'manual' | 'auto',
+      note: entry.note || undefined
+    };
   }
   const entries: Record<number, EntryCell> = {};
   let totalQty = 0;

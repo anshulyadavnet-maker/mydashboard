@@ -154,17 +154,18 @@ export async function getEntriesForAccount(db: D1Database, accountId: number, ye
   const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
   const endDate = `${year}-${String(month).padStart(2, '0')}-31`;
   const result = await db.prepare(
-    'SELECT entry_date, quantity, entry_type FROM milk_entries WHERE account_id = ? AND entry_date >= ? AND entry_date <= ?'
+    'SELECT entry_date, quantity, entry_type, note FROM milk_entries WHERE account_id = ? AND entry_date >= ? AND entry_date <= ?'
   ).bind(accountId, startDate, endDate).all();
   return result.results;
 }
 
-export async function upsertEntry(db: D1Database, accountId: number, entryDate: string, quantity: number, entryType: string) {
+export async function upsertEntry(db: D1Database, accountId: number, entryDate: string, quantity: number, entryType: string, note?: string | null) {
+  const cleanNote = (note && note !== 'null' && note !== 'NULL' && note.trim() !== '') ? note.trim() : null;
   await db.prepare(`
-    INSERT INTO milk_entries (account_id, entry_date, quantity, entry_type)
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(account_id, entry_date) DO UPDATE SET quantity = ?, entry_type = ?
-  `).bind(accountId, entryDate, quantity, entryType, quantity, entryType).run();
+    INSERT INTO milk_entries (account_id, entry_date, quantity, entry_type, note)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(account_id, entry_date) DO UPDATE SET quantity = ?, entry_type = ?, note = ?
+  `).bind(accountId, entryDate, quantity, entryType, cleanNote, quantity, entryType, cleanNote).run();
 }
 
 export async function bulkAutofill(db: D1Database, accountId: number, quantity: number, autogenTime: string, startDate: string, endDate: string, year: number, month: number) {

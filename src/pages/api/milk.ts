@@ -111,9 +111,10 @@ export const POST: APIRoute = async (context) => {
         const accountId = parseInt(formData.get('account_id') as string) || 0;
         const entryDate = formData.get('entry_date') as string;
         const quantityStr = formData.get('quantity') as string;
+        const note = formData.get('note') as string || '';
         const quantity = quantityStr === '' || quantityStr === null ? 0 : parseFloat(quantityStr);
         if (!accountId || !entryDate) return new Response(JSON.stringify({ success: false, message: 'Account and date required.' }), { status: 400 });
-        await upsertEntry(db, accountId, entryDate, quantity, 'manual');
+        await upsertEntry(db, accountId, entryDate, quantity, 'manual', note);
         return new Response(JSON.stringify({ success: true }));
       }
       case 'bulk_autofill': {

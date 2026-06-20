@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS milk_entries (
   entry_date TEXT NOT NULL,
   quantity REAL NOT NULL DEFAULT 0,
   entry_type TEXT DEFAULT 'auto',
+  note TEXT DEFAULT NULL,
   UNIQUE(account_id, entry_date)
 );
 
