@@ -28,7 +28,11 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   // Define public routes
   const isHome = normalizedPath === '/';
-  const isAuthRoute = normalizedPath === '/login' || normalizedPath === '/register';
+  const isAuthRoute = 
+    normalizedPath === '/login' || 
+    normalizedPath === '/register' ||
+    normalizedPath === '/forgot-password' ||
+    normalizedPath === '/reset-password';
   const isAuthApi = normalizedPath.startsWith('/api/auth/');
   const isViewerPing = normalizedPath === '/api/viewer-ping';
   const isPublicTool = 

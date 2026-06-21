@@ -44,6 +44,31 @@ export async function createUser(db: D1Database, email: string, passwordHash: st
   return result.meta?.last_row_id;
 }
 
+export async function createPasswordReset(db: D1Database, email: string, token: string, expiresAt: string) {
+  await db.prepare('DELETE FROM password_resets WHERE email = ?').bind(email).run();
+  const result = await db.prepare(
+    'INSERT INTO password_resets (email, token, expires_at) VALUES (?, ?, ?)'
+  ).bind(email, token, expiresAt).run();
+  return result.meta?.last_row_id;
+}
+
+export async function getPasswordReset(db: D1Database, email: string, token: string) {
+  return await db.prepare(
+    'SELECT * FROM password_resets WHERE email = ? AND token = ?'
+  ).bind(email, token).first();
+}
+
+export async function deletePasswordReset(db: D1Database, email: string) {
+  await db.prepare('DELETE FROM password_resets WHERE email = ?').bind(email).run();
+}
+
+export async function updateUserPassword(db: D1Database, email: string, passwordHash: string) {
+  const result = await db.prepare(
+    'UPDATE users SET password_hash = ? WHERE email = ?'
+  ).bind(passwordHash, email).run();
+  return result.meta?.changes || 0;
+}
+
 export async function getSuppliers(db: D1Database, userId: number) {
   const result = await db.prepare(
     'SELECT * FROM milk_suppliers WHERE user_id = ? ORDER BY name ASC'

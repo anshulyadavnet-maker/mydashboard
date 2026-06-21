@@ -16,7 +16,10 @@ import Layout from '../components/Layout.astro';
           <input type="email" id="email" name="email" class="form-control" placeholder="you@example.com" required autofocus>
         </div>
         <div class="mb-3">
-          <label class="form-label" for="password">Password</label>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+            <label class="form-label" for="password" style="margin-bottom: 0;">Password</label>
+            <a href="/forgot-password" style="color: var(--accent-primary); text-decoration: none; font-size: 0.85rem; font-weight: 500;">Forgot password?</a>
+          </div>
           <input type="password" id="password" name="password" class="form-control" placeholder="••••••••" required>
         </div>
         <button type="submit" class="btn btn-primary w-100" id="loginBtn">Sign In</button>

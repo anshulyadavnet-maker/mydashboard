@@ -109,6 +109,16 @@ CREATE TABLE IF NOT EXISTS passwords (
 );
 
 CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(user_id);
+
+-- Password Resets
+CREATE TABLE IF NOT EXISTS password_resets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL,
+  token TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(email);
 CREATE INDEX IF NOT EXISTS idx_expenses_user ON expenses(user_id);
 CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
 CREATE INDEX IF NOT EXISTS idx_passwords_user ON passwords(user_id);
