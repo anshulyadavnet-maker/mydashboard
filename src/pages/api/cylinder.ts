@@ -12,6 +12,19 @@ export const POST: APIRoute = async (context) => {
   
   try {
     if (action === 'create') {
+      if (delivery_date && booking_date && delivery_date < booking_date) {
+        return new Response(JSON.stringify({ success: false, message: 'Delivery date cannot be before booking date.' }), { status: 400 });
+      }
+      if (start_date && booking_date && start_date < booking_date) {
+        return new Response(JSON.stringify({ success: false, message: 'Connection date cannot be before booking date.' }), { status: 400 });
+      }
+      if (start_date && delivery_date && start_date < delivery_date) {
+        return new Response(JSON.stringify({ success: false, message: 'Connection date cannot be before delivery date.' }), { status: 400 });
+      }
+      if (empty_date && start_date && empty_date < start_date) {
+        return new Response(JSON.stringify({ success: false, message: 'Empty date cannot be before connection date.' }), { status: 400 });
+      }
+
       const cylinderId = await createCylinder(db, user.userId, {
         provider,
         booking_number,
@@ -28,6 +41,19 @@ export const POST: APIRoute = async (context) => {
       });
       return new Response(JSON.stringify({ success: true, id: cylinderId }));
     } else if (action === 'update') {
+      if (delivery_date && booking_date && delivery_date < booking_date) {
+        return new Response(JSON.stringify({ success: false, message: 'Delivery date cannot be before booking date.' }), { status: 400 });
+      }
+      if (start_date && booking_date && start_date < booking_date) {
+        return new Response(JSON.stringify({ success: false, message: 'Connection date cannot be before booking date.' }), { status: 400 });
+      }
+      if (start_date && delivery_date && start_date < delivery_date) {
+        return new Response(JSON.stringify({ success: false, message: 'Connection date cannot be before delivery date.' }), { status: 400 });
+      }
+      if (empty_date && start_date && empty_date < start_date) {
+        return new Response(JSON.stringify({ success: false, message: 'Empty date cannot be before connection date.' }), { status: 400 });
+      }
+
       await updateCylinder(db, id, user.userId, {
         provider,
         booking_number,
@@ -45,13 +71,37 @@ export const POST: APIRoute = async (context) => {
       return new Response(JSON.stringify({ success: true }));
     } else if (action === 'connect') {
       const connDate = connectDate || new Date().toISOString().split('T')[0];
+      
+      const cylinder = await db.prepare('SELECT booking_date, delivery_date FROM cylinders WHERE id = ? AND user_id = ?').bind(id, user.userId).first<any>();
+      if (!cylinder) {
+        return new Response(JSON.stringify({ success: false, message: 'Cylinder not found.' }), { status: 404 });
+      }
+      if (cylinder.booking_date && connDate < cylinder.booking_date) {
+        return new Response(JSON.stringify({ success: false, message: `Connection date cannot be before booking date (${cylinder.booking_date}).` }), { status: 400 });
+      }
+      if (cylinder.delivery_date && connDate < cylinder.delivery_date) {
+        return new Response(JSON.stringify({ success: false, message: `Connection date cannot be before delivery date (${cylinder.delivery_date}).` }), { status: 400 });
+      }
+
       await connectCylinder(db, id, parseInt(placementId), user.userId, connDate);
       return new Response(JSON.stringify({ success: true }));
     } else if (action === 'markEmpty') {
-      // Find the cylinder, update its status to empty and empty_date to emptyDate
       const empDate = emptyDate || new Date().toISOString().split('T')[0];
       
-      // We can use a direct D1 run or fetch and update. Direct is cleaner:
+      const cylinder = await db.prepare('SELECT booking_date, delivery_date, start_date FROM cylinders WHERE id = ? AND user_id = ?').bind(id, user.userId).first<any>();
+      if (!cylinder) {
+        return new Response(JSON.stringify({ success: false, message: 'Cylinder not found.' }), { status: 404 });
+      }
+      if (cylinder.booking_date && empDate < cylinder.booking_date) {
+        return new Response(JSON.stringify({ success: false, message: `Empty date cannot be before booking date (${cylinder.booking_date}).` }), { status: 400 });
+      }
+      if (cylinder.delivery_date && empDate < cylinder.delivery_date) {
+        return new Response(JSON.stringify({ success: false, message: `Empty date cannot be before delivery date (${cylinder.delivery_date}).` }), { status: 400 });
+      }
+      if (cylinder.start_date && empDate < cylinder.start_date) {
+        return new Response(JSON.stringify({ success: false, message: `Empty date cannot be before connection date (${cylinder.start_date}).` }), { status: 400 });
+      }
+
       await db.prepare(`
         UPDATE cylinders SET status = 'empty', empty_date = ?, updated_at = datetime('now')
         WHERE id = ? AND user_id = ?

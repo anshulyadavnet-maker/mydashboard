@@ -266,7 +266,7 @@ const cylinderSchema = {
                       )}
 
                       <div class="flex gap-2 mt-auto">
-                        <button class="btn btn-outline-danger btn-sm mark-empty-btn w-100" data-id={activeCyl.id}>
+                        <button class="btn btn-outline-danger btn-sm mark-empty-btn w-100" data-id={activeCyl.id} data-booking-date={activeCyl.booking_date} data-delivery-date={activeCyl.delivery_date} data-start-date={activeCyl.start_date}>
                           Mark Empty
                         </button>
                       </div>
@@ -581,7 +581,7 @@ const cylinderSchema = {
                     <option value="" disabled>No standby cylinders available</option>
                   ) : (
                     standbyCylinders.map(c => (
-                      <option value={c.id}>
+                      <option value={c.id} data-booking-date={c.booking_date} data-delivery-date={c.delivery_date}>
                         {c.provider} ({c.weight} kg) - Delivered {formatDateString(c.delivery_date)}
                       </option>
                     ))
@@ -965,9 +965,25 @@ const cylinderSchema = {
     document.querySelectorAll('.mark-empty-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.getAttribute('data-id');
+        const bookingDate = btn.getAttribute('data-booking-date');
+        const deliveryDate = btn.getAttribute('data-delivery-date');
+        const startDate = btn.getAttribute('data-start-date');
         const emptyDate = prompt('Enter date the cylinder went empty (YYYY-MM-DD):', today);
         if (emptyDate === null) return; // cancelled
         
+        if (bookingDate && emptyDate < bookingDate) {
+          alert(`Empty date cannot be before booking date (${bookingDate}).`);
+          return;
+        }
+        if (deliveryDate && emptyDate < deliveryDate) {
+          alert(`Empty date cannot be before delivery date (${deliveryDate}).`);
+          return;
+        }
+        if (startDate && emptyDate < startDate) {
+          alert(`Empty date cannot be before connection date (${startDate}).`);
+          return;
+        }
+
         try {
           const res = await fetch('/api/cylinder', {
             method: 'POST',
@@ -994,6 +1010,42 @@ const cylinderSchema = {
         payload[key] = value;
       });
 
+      const bookingDate = payload.booking_date;
+      const deliveryDate = payload.delivery_date;
+      const startDate = payload.start_date;
+      const emptyDate = payload.empty_date;
+
+      if (bookingDate) {
+        if (deliveryDate && deliveryDate < bookingDate) {
+          alert('Delivery date cannot be before booking date.');
+          return;
+        }
+        if (startDate && startDate < bookingDate) {
+          alert('Connection date cannot be before booking date.');
+          return;
+        }
+        if (emptyDate && emptyDate < bookingDate) {
+          alert('Empty date cannot be before booking date.');
+          return;
+        }
+      }
+      if (deliveryDate) {
+        if (startDate && startDate < deliveryDate) {
+          alert('Connection date cannot be before delivery date.');
+          return;
+        }
+        if (emptyDate && emptyDate < deliveryDate) {
+          alert('Empty date cannot be before delivery date.');
+          return;
+        }
+      }
+      if (startDate) {
+        if (emptyDate && emptyDate < startDate) {
+          alert('Empty date cannot be before connection date.');
+          return;
+        }
+      }
+
       try {
         const res = await fetch('/api/cylinder', {
           method: 'POST',
@@ -1017,6 +1069,23 @@ const cylinderSchema = {
       formData.forEach((value, key) => {
         payload[key] = value;
       });
+
+      const connectCylSelect = document.getElementById('connectCylId') as HTMLSelectElement;
+      const selectedOption = connectCylSelect.options[connectCylSelect.selectedIndex];
+      const cylBookingDate = selectedOption?.getAttribute('data-booking-date');
+      const cylDeliveryDate = selectedOption?.getAttribute('data-delivery-date');
+      const connDate = payload.connectDate;
+
+      if (connDate) {
+        if (cylBookingDate && connDate < cylBookingDate) {
+          alert(`Connection date cannot be before booking date (${cylBookingDate}).`);
+          return;
+        }
+        if (cylDeliveryDate && connDate < cylDeliveryDate) {
+          alert(`Connection date cannot be before delivery date (${cylDeliveryDate}).`);
+          return;
+        }
+      }
 
       try {
         const res = await fetch('/api/cylinder', {
