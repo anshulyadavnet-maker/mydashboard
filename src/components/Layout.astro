@@ -30,6 +30,15 @@ const isPagesDev = Astro.url.hostname.endsWith('pages.dev');
 <!doctype html>
 <html lang="en" data-logged-in={isLoggedIn ? "true" : "false"}>
 <head>
+  <!-- Google tag (gtag.js) -->
+  <script is:inline async src="https://www.googletagmanager.com/gtag/js?id=G-2JXY059N12"></script>
+  <script is:inline>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){window.dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-2JXY059N12');
+  </script>
   <meta charset="UTF-8">
   {isPagesDev && <meta name="robots" content="noindex, nofollow" />}
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
